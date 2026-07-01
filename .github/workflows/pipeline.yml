@@ -16,6 +16,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Ép runner chạy giờ VN (mặc định runner là UTC) → "Last updated" + tên folder theo ngày đúng giờ VN.
+    env:
+      TZ: Asia/Ho_Chi_Minh
     steps:
       - uses: actions/checkout@v5
 

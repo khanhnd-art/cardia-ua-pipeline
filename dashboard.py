@@ -1246,10 +1246,6 @@ def main():
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
       Saya<span class="soon">Coming soon</span>
     </button>
-    <button class="nav" data-view="activity" aria-label="Activity Log">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-      Activity Log
-    </button>
     <div class="side-foot">Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$
       <button class="pull-btn" id="pullBtn" title="Chạy pull_data + dựng lại dashboard (cần mở qua serve.py)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
