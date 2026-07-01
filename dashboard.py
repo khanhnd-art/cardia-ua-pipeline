@@ -1036,6 +1036,8 @@ def main():
   :root {{ --bg:#f5f7fb; --card:#ffffff; --card2:#eef2f9; --line:#dde3ef; --txt:#172033;
           --mut:#5f6b82; --good:#0f9d6b; --warn:#c2790f; --bad:#d6454f; --acc:#2f6fe0; --zebra:#f6f8fd; }}
   * {{ box-sizing:border-box; }}
+  /* Khoá iOS Safari tự phóng to chữ trong bảng có cột dài (tên campaign) → giữ đúng size như bảng GEO. */
+  html {{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }}
   body {{ margin:0; background:var(--bg); color:var(--txt);
          font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          font-variant-numeric:tabular-nums; }}
