@@ -1,0 +1,76 @@
+name: Cardia UA pipeline
+
+# Chạy MỖI GIỜ (giờ UTC). Data settle theo GMT-7 nên phủ đủ mốc 14:00 VN.
+# workflow_dispatch: cho phép bấm chạy tay ở tab Actions để test.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+
+# Không cho 2 lần chạy chồng nhau (tránh 2 deploy Cloudflare đua nhau).
+concurrency:
+  group: cardia-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cài wrangler (để publish Cloudflare Pages)
+        run: npm i -g wrangler@3
+
+      # Dựng lại .env từ GitHub Secrets — scripts đọc .env nên KHÔNG cần sửa code.
+      - name: Dựng .env từ secrets
+        env:
+          META_ACCESS_TOKEN:     ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID:    ${{ secrets.META_AD_ACCOUNT_ID }}
+          ADJUST_API_TOKEN:      ${{ secrets.ADJUST_API_TOKEN }}
+          ADJUST_REPORT_QUERY:   ${{ secrets.ADJUST_REPORT_QUERY }}
+          ADJUST_CREATIVE_QUERY: ${{ secrets.ADJUST_CREATIVE_QUERY }}
+          SINCE:                 ${{ secrets.SINCE }}
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PAGES_PROJECT:      ${{ secrets.CF_PAGES_PROJECT }}
+        run: |
+          umask 077
+          {
+            echo "META_ACCESS_TOKEN=${META_ACCESS_TOKEN}"
+            echo "META_AD_ACCOUNT_ID=${META_AD_ACCOUNT_ID}"
+            echo "ADJUST_API_TOKEN=${ADJUST_API_TOKEN}"
+            echo "ADJUST_REPORT_QUERY=${ADJUST_REPORT_QUERY}"
+            echo "ADJUST_CREATIVE_QUERY=${ADJUST_CREATIVE_QUERY}"
+            echo "SINCE=${SINCE}"
+            echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}"
+            echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}"
+            echo "CF_PAGES_PROJECT=${CF_PAGES_PROJECT}"
+          } > .env
+
+      - name: Pull data (Meta + Adjust)
+        run: python3 pull_data.py
+
+      - name: Build dashboard.html
+        run: python3 dashboard.py
+
+      - name: Publish lên Cloudflare Pages
+        run: bash publish_cloudflare.sh
+
+      # Không cốt lõi cho live URL → best-effort, lỗi không làm fail run.
+      - name: Weekly report + analyze (best-effort)
+        run: |
+          python3 weekly_report.py || true
+          python3 analyze.py || true
+
+      - name: Xoá .env
+        if: always()
+        run: rm -f .env

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Cardia auto-pull: chạy run_pipeline.sh 5 mốc/ngày giờ VN: 10:00 / 13:00 / 16:00 / 19:00 / 22:00
+     (xem số nhiều lần trong ngày). Reporting TZ Adjust+Meta = GMT-7 (ngày đóng sổ lúc 14:00 VN);
+     pull re-fetch toàn range mỗi lần nên số ngày trước tự sửa khi settle. Data có trễ ~15'-vài giờ
+     nên >4 lần/ngày ít giá trị. Cài đặt: xem SETUP-AUTOMATION.md. Thêm/bớt mốc: sửa mảng dict dưới. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cardia.autopull</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/run_pipeline.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/logs/launchd.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

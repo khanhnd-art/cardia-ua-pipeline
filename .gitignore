@@ -1,0 +1,12 @@
+# Secrets — TUYỆT ĐỐI không commit
+.env
+
+# Data & output sinh ra mỗi lần chạy (cloud tự tạo lại, không cần lưu git)
+exports/
+logs/
+dashboard.html
+_latest_analysis.txt
+
+# Rác local
+.DS_Store
+.wrangler/
