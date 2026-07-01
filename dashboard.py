@@ -1247,11 +1247,6 @@ def main():
       Saya<span class="soon">Coming soon</span>
     </button>
     <div class="side-foot">Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$
-      <button class="pull-btn" id="pullBtn" title="Chạy pull_data + dựng lại dashboard (cần mở qua serve.py)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
-        Pull data mới
-      </button>
-      <div class="pull-msg" id="pullMsg"></div>
     </div>
   </aside>
 

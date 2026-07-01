@@ -16,7 +16,6 @@ cd "$HERE" || exit 1
   echo "--- pull_data ---";     "$PY" pull_data.py
   echo "--- dashboard ---";     "$PY" dashboard.py
   echo "--- publish ---";        bash publish_cloudflare.sh
-  echo "--- weekly_report ---"; "$PY" weekly_report.py
 } >> "$LOG" 2>&1
 
 # analyze chạy 1 lần, lưu cả vào log lẫn file đọc nhanh _latest_analysis.txt

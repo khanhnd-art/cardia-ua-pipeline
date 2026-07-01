@@ -1,10 +1,10 @@
 name: Cardia UA pipeline
 
-# Chạy MỖI GIỜ (giờ UTC). Data settle theo GMT-7 nên phủ đủ mốc 14:00 VN.
+# Chạy MỖI 30 PHÚT. Data settle theo GMT-7 nên phủ đủ mốc 14:00 VN.
 # workflow_dispatch: cho phép bấm chạy tay ở tab Actions để test.
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 # Không cho 2 lần chạy chồng nhau (tránh 2 deploy Cloudflare đua nhau).
@@ -69,10 +69,8 @@ jobs:
         run: bash publish_cloudflare.sh
 
       # Không cốt lõi cho live URL → best-effort, lỗi không làm fail run.
-      - name: Weekly report + analyze (best-effort)
-        run: |
-          python3 weekly_report.py || true
-          python3 analyze.py || true
+      - name: Analyze (best-effort)
+        run: python3 analyze.py || true
 
       - name: Xoá .env
         if: always()
