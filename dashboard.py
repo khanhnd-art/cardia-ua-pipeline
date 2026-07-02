@@ -782,15 +782,15 @@ def main():
         return {c:c,sp:sp,impr:impr,lc:lc,inst:inst,v3:v3};
       }).filter(function(x){return x.impr>0;}).sort(function(a,b){return b.impr-a.impr;});
       document.getElementById('creBody').innerHTML = rows.length? rows.map(function(x,i){
-        const cpi=x.inst?(x.sp/FX)/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0,hook=x.impr?x.v3/x.impr*100:0;
+        const cpi=x.inst?(x.sp/FX)/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0,cvr=x.lc?x.inst/x.lc*100:0,hook=x.impr?x.v3/x.impr*100:0;
         const q=QR[x.c]||'',qc=/BELOW/.test(q)?'bad':(q==='AVERAGE'||q==='ABOVE_AVERAGE'?'good':'mut'),cc=ctr>6?'good':ctr>3?'warn':'bad';
         const exp=DCREGEO[x.c]?' expandable':'', car=DCREGEO[x.c]?'<span class="caret">▸</span> ':'';
-        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td class="mono">'+car+x.c+'</td><td class="angcell">'+angOf(x.c)+'</td><td>'+x.impr.toLocaleString()+'</td><td>'+x.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td class="'+cc+'">'+ctr.toFixed(2)+'%</td><td>'+hook.toFixed(1)+'%</td><td class="'+qc+'" title="'+(q||'chưa có dữ liệu')+'">'+qLabel(q)+'</td></tr>';
+        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td class="mono">'+car+x.c+'</td><td class="angcell">'+angOf(x.c)+'</td><td>'+x.impr.toLocaleString()+'</td><td>'+x.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td class="'+cc+'">'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>'+hook.toFixed(1)+'%</td><td class="'+qc+'" title="'+(q||'chưa có dữ liệu')+'">'+qLabel(q)+'</td></tr>';
       }).join('')+(function(){
         var T=rows.reduce(function(s,x){s.sp+=x.sp;s.impr+=x.impr;s.lc+=x.lc;s.inst+=x.inst;s.v3+=x.v3;return s;},{sp:0,impr:0,lc:0,inst:0,v3:0});
-        var cpi=T.inst?(T.sp/FX)/T.inst:0,ctr=T.impr?T.lc/T.impr*100:0,hook=T.impr?T.v3/T.impr*100:0;
-        return '<tr class="trow-tot"><td>Total</td><td></td><td>'+T.impr.toLocaleString()+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>'+hook.toFixed(1)+'%</td><td>—</td></tr>';
-      })() : '<tr><td colspan="8" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
+        var cpi=T.inst?(T.sp/FX)/T.inst:0,ctr=T.impr?T.lc/T.impr*100:0,cvr=T.lc?T.inst/T.lc*100:0,hook=T.impr?T.v3/T.impr*100:0;
+        return '<tr class="trow-tot"><td>Total</td><td></td><td>'+T.impr.toLocaleString()+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>'+hook.toFixed(1)+'%</td><td>—</td></tr>';
+      })() : '<tr><td colspan="9" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
     }
     // breakdown creative theo country. a=[adjInst, costAdj, rev, ret1*adjInst, spendMetaVND, instMeta]
     // Inst/Spend/CPI = Meta (khớp hàng cha). Rev/LTV/ROAS: Adjust rev ÷ spend Meta. D1 = Adjust, chỉ cohort chín (d<=D1CUT) → nếu chưa chín hiện "–".
@@ -866,23 +866,23 @@ def main():
         .filter(function(x){ return camFilter==='all' || (CAM_STATUS[x.c]||'').toUpperCase()==='ACTIVE'; })
         .sort(function(a,b){return b.sp-a.sp;});
       document.getElementById('camBody').innerHTML = rows.length? rows.map(function(x,i){
-        const cost=x.sp/FX,cpi=x.inst?cost/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0;
+        const cost=x.sp/FX,cpi=x.inst?cost/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0,cvr=x.lc?x.inst/x.lc*100:0;
         const cc=cpi<0.12?'good':cpi<0.3?'warn':'bad',tc=ctr>6?'good':ctr>3?'warn':'bad';
         const obj=CAM_OBJ[x.c]||'—';
         let rev=0; const ac=DACAM_ADJ[x.c];
         if(ac){ days.forEach(function(d){ const a=ac[d]; if(a){ rev+=a[2]; } }); }
         const roas=cost?rev/cost:0;
         const exp=DCAMGEO[x.c]?' expandable':'', car=DCAMGEO[x.c]?'<span class="caret">▸</span> ':'';
-        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td>'+car+x.c+'</td><td class="angcell">'+statHtml(x.c)+'</td><td class="angcell"><span class="ang"><b>'+obj+'</b></span></td><td>$'+cost.toFixed(2)+'</td><td>'+x.inst.toLocaleString()+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td><td class="'+tc+'">'+ctr.toFixed(2)+'%</td><td>$'+rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
+        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td>'+car+x.c+'</td><td class="angcell">'+statHtml(x.c)+'</td><td class="angcell"><span class="ang"><b>'+obj+'</b></span></td><td>$'+cost.toFixed(2)+'</td><td>'+x.inst.toLocaleString()+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td><td class="'+tc+'">'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>$'+rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
       }).join('')+(function(){
         var T=rows.reduce(function(s,x){
           s.sp+=x.sp;s.impr+=x.impr;s.lc+=x.lc;s.inst+=x.inst;
           var ac=DACAM_ADJ[x.c]; if(ac){ days.forEach(function(d){ var a=ac[d]; if(a){ s.rev+=a[2]; } }); }
           return s;
         },{sp:0,impr:0,lc:0,inst:0,rev:0});
-        var cost=T.sp/FX,cpi=T.inst?cost/T.inst:0,ctr=T.impr?T.lc/T.impr*100:0,roas=cost?T.rev/cost:0;
-        return '<tr class="trow-tot"><td>Total</td><td></td><td></td><td>$'+cost.toFixed(2)+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>$'+T.rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
-      })() : '<tr><td colspan="9" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
+        var cost=T.sp/FX,cpi=T.inst?cost/T.inst:0,ctr=T.impr?T.lc/T.impr*100:0,cvr=T.lc?T.inst/T.lc*100:0,roas=cost?T.rev/cost:0;
+        return '<tr class="trow-tot"><td>Total</td><td></td><td></td><td>$'+cost.toFixed(2)+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>$'+T.rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
+      })() : '<tr><td colspan="10" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
     }
     const QLAB={ABOVE_AVERAGE:'Above avg', AVERAGE:'Average',
       BELOW_AVERAGE_35:'Below avg (35%)', BELOW_AVERAGE_20:'Below avg (20%)', BELOW_AVERAGE_10:'Below avg (10%)'};
@@ -964,7 +964,7 @@ def main():
       const nx=tr.nextElementSibling;
       if(nx&&nx.classList.contains('subrow')){ nx.remove(); tr.classList.remove('open'); return; }
       const sub=document.createElement('tr'); sub.className='subrow';
-      sub.innerHTML='<td colspan="8">'+creGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
+      sub.innerHTML='<td colspan="9">'+creGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
       tr.after(sub); tr.classList.add('open');
     });
     document.getElementById('camBody').addEventListener('click',function(e){
@@ -972,7 +972,7 @@ def main():
       const nx=tr.nextElementSibling;
       if(nx&&nx.classList.contains('subrow')){ nx.remove(); tr.classList.remove('open'); return; }
       const sub=document.createElement('tr'); sub.className='subrow';
-      sub.innerHTML='<td colspan="9">'+camGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
+      sub.innerHTML='<td colspan="10">'+camGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
       tr.after(sub); tr.classList.add('open');
     });
 
@@ -1299,7 +1299,7 @@ def main():
           </div>
         </div>
         <div class="scroll"><table>
-          <thead><tr><th>Campaign</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th>Revenue</th><th>ROAS</th></tr></thead>
+          <thead><tr><th>Campaign</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
           <tbody id="camBody"></tbody>
         </table></div>
       </div>
@@ -1321,7 +1321,7 @@ def main():
       <div class="panel">
         <h2>Creative (Meta)</h2>
         <div class="scroll"><table>
-          <thead><tr><th>Creative</th><th class="angcol">Angle</th><th>Impr</th><th>Inst</th><th>CPI</th><th>CTR</th><th>hook 3s</th><th>Quality</th></tr></thead>
+          <thead><tr><th>Creative</th><th class="angcol">Angle</th><th>Impr</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>hook 3s</th><th>Quality</th></tr></thead>
           <tbody id="creBody"></tbody>
         </table></div>
       </div>
