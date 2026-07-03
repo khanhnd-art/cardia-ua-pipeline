@@ -11,7 +11,8 @@ import sys, csv, json, re, glob, pathlib, datetime
 from collections import defaultdict
 
 HERE = pathlib.Path(__file__).resolve().parent
-CRE_RE = re.compile(r"(CAR_A\d+_[A-Z]+_H\d+_(?:EN|US))")
+# hook token: H7, CL06, ... (chữ hoa + số); geo hiện có EN/US
+CRE_RE = re.compile(r"(CAR_A\d+_[A-Z]+_[A-Z]*\d+_(?:EN|US))")
 GEO = {"India": "India", "United States": "US", "Pakistan": "Pakistan", "Brazil": "Brazil"}
 LATAM = {"Venezuela, Bolivarian Republic Of", "Peru", "Colombia", "Chile", "Argentina",
          "Bolivia, Plurinational State Of", "Paraguay", "Uruguay", "Ecuador", "Mexico",
@@ -207,7 +208,8 @@ def load_meta(d):
     with open(d / "meta_ad.csv") as fp:
         for r in csv.DictReader(fp):
             m = CRE_RE.search(r.get("ad_name", ""))
-            cid = m.group(1) if m else "(no-CAR-id)"
+            # không match mã CAR → hiện NGUYÊN tên ad đang chạy ở Meta (không gom "(no-CAR-id)")
+            cid = m.group(1) if m else (r.get("ad_name", "").strip() or "(unnamed)")
             day = r.get("date", "") or "?"
             impr = int(f(r["impressions"]))
             a = DCRE[cid][day]
@@ -280,62 +282,6 @@ def load_meta_geo(d):
     return META_CG
 
 
-def _epoch(s):
-    # offset dạng "+07" → "+0700" (strptime %z cần đủ 4 chữ số)
-    s = re.sub(r"([+-]\d{2})(?=\s)", lambda m: m.group(1) + "00", s.strip())
-    try:
-        return int(datetime.datetime.strptime(s, "%a %b %d %H:%M:%S %z %Y").timestamp())
-    except Exception:
-        return None
-
-
-def load_activity(limit=80):
-    """Parse logs/*.log của run_pipeline.sh thành danh sách event (sync/build/report/error)."""
-    logdir = HERE / "logs"
-    events = []
-    if not logdir.exists():
-        return events
-    run_re = re.compile(r"===== Cardia pipeline @ (.+?) =====")
-    end_re = re.compile(r"===== xong @ (.+?) =====")
-    for lf in sorted(logdir.glob("*.log")):
-        if lf.name.startswith("launchd"):
-            continue
-        text = lf.read_text(errors="ignore")
-        marks = list(run_re.finditer(text))
-        for i, m in enumerate(marks):
-            block = text[m.end(): (marks[i + 1].start() if i + 1 < len(marks) else len(text))]
-            st = _epoch(m.group(1))
-            em = end_re.search(block)
-            et = _epoch(em.group(1)) if em else st
-            base = st or et
-            if base is None:
-                continue
-            mc = re.search(r"Meta campaign:\s*(\d+)", block)
-            ma = re.search(r"Meta ad:\s*(\d+)", block)
-            adj = bool(re.search(r"Adjust →", block))
-            rng = re.search(r"Kéo data (\S+) → (\S+)", block)
-            if mc or ma or adj:
-                parts = []
-                if mc: parts.append(f"{mc.group(1)} campaign")
-                if ma: parts.append(f"{ma.group(1)} ad")
-                meta_txt = ("Meta " + " + ".join(parts)) if parts else "Meta"
-                rng_txt = f" · {rng.group(1)}→{rng.group(2)}" if rng else ""
-                events.append({"ts": base, "kind": "sync", "title": "Pull data hoàn tất",
-                               "desc": f"{meta_txt} · {'Adjust OK' if adj else 'Adjust lỗi'}{rng_txt}"})
-            db = re.search(r"installs=(\d+) cost=\$([\d.]+) rev=\$([\d.]+) CPI=\$([\d.]+) ROAS=([\d.]+)x D1=([\d.]+)%", block)
-            if db:
-                events.append({"ts": et or base, "kind": "build", "title": "Dashboard cập nhật",
-                               "desc": f"installs={db.group(1)} · CPI=${db.group(4)} · ROAS={db.group(5)}x · D1={db.group(6)}%"})
-            if re.search(r"Báo cáo tuần", block):
-                fl = re.search(r"(\d+) cờ", block)
-                events.append({"ts": et or base, "kind": "report", "title": "Báo cáo tuần",
-                               "desc": f"{fl.group(1)} cờ cảnh báo" if fl else "đã sinh báo cáo"})
-            for el in re.findall(r"❌ .+", block):
-                events.append({"ts": base, "kind": "error", "title": "Lỗi pipeline", "desc": el.strip()})
-    events.sort(key=lambda e: e["ts"], reverse=True)
-    return events[:limit]
-
-
 def load_adjust_creative(d):
     """DCREGEO[carid][country][day]=[inst,cost,rev,ret1*inst, spendMetaVND, instMeta] — creative × country.
     Key theo ĐÚNG country (không gom vùng). slot[4],[5] ghép sau từ load_meta_creative_geo()."""
@@ -348,10 +294,10 @@ def load_adjust_creative(d):
     except Exception:
         return DCG
     for r in rows:
-        m = CRE_RE.search(r.get("creative", "") or "")
-        if not m:
-            continue  # bỏ creative không có mã CAR (NewCreative, unknown…)
-        cid = m.group(1)
+        raw = (r.get("creative", "") or "").strip()
+        m = CRE_RE.search(raw)
+        # không match mã CAR → key theo nguyên tên creative (khớp tên ad Meta nếu trùng)
+        cid = m.group(1) if m else (raw or "(unnamed)")
         day = r.get("day", "") or "?"
         cty = (r.get("country", "") or "").strip() or "Unknown"
         if cty.lower() == "unknown":
@@ -371,10 +317,9 @@ def load_meta_creative_geo(d):
         return META_CRG
     with open(p) as fp:
         for r in csv.DictReader(fp):
-            m = CRE_RE.search(r.get("ad_name", "") or "")
-            if not m:
-                continue
-            cid = m.group(1)
+            raw = (r.get("ad_name", "") or "").strip()
+            m = CRE_RE.search(raw)
+            cid = m.group(1) if m else (raw or "(unnamed)")
             iso = (r.get("country", "") or "").strip().upper()
             name = ISO2_NAME.get(iso, iso)
             day = r.get("date", "") or "?"
@@ -424,7 +369,6 @@ def main():
             for day, a in dd.items():
                 DCREGEO[cid][key][day][4] += a[0]
                 DCREGEO[cid][key][day][5] += a[1]
-    ACTS = load_activity()
 
     all_days = sorted(DTOT.keys())
     # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
@@ -470,11 +414,10 @@ def main():
     j_dcamgeo = json.dumps({c: {g: {dy: [a[0], jnum(a[1]), jnum(a[2]), jnum(a[4]), jnum(a[5]), a[6]] for dy, a in dd.items()}
                                 for g, dd in geos.items()} for c, geos in DCAMGEO.items()}, ensure_ascii=False)
     j_angn = json.dumps(ANGLE_NAME)
-    j_acts = json.dumps(ACTS, ensure_ascii=False)
     j_qr = json.dumps(QR)
 
     APP = """
-    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, ACTS = __ACTS__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__;
+    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__;
     const GREEN='#0f9d6b', RED='#d6454f';
     function DT(d){ return DTOT[d] || [0,0,0,0,0]; }
 
@@ -904,35 +847,6 @@ def main():
       return '<span class="ang"><b>'+code+'</b> '+nm+'</span>';
     }
 
-    // ---------- Activity Log ----------
-    const ACTIC={
-      sync:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>',
-      build:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M6 18v-6"/><path d="M12 18V8"/><path d="M18 18v-9"/></svg>',
-      report:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>',
-      error:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>'};
-    const ACTBADGE={sync:'Sync', build:'Build', report:'Report', error:'Error'};
-    function pad2(n){ return (n<10?'0':'')+n; }
-    function ago(ts){
-      let s=Math.floor(Date.now()/1000)-ts; if(s<0) s=0;
-      if(s<60) return s+'s trước';
-      const m=Math.floor(s/60); if(m<60) return m+'m trước';
-      const h=Math.floor(m/60); if(h<24) return h+'h trước';
-      return Math.floor(h/24)+' ngày trước';
-    }
-    function absT(ts){ const d=new Date(ts*1000);
-      return pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
-    function renderActivity(){
-      const host=document.getElementById('actList');
-      if(!ACTS.length){ host.innerHTML='<div class="empty">Chưa có lần chạy nào trong logs/. Pipeline tự ghi sau mỗi lần auto-run.</div>'; return; }
-      host.innerHTML=ACTS.map(function(e){
-        return '<div class="act act-'+e.kind+'"><div class="act-ic">'+(ACTIC[e.kind]||'')+'</div>'
-          +'<div class="act-body"><div class="act-top"><span class="act-title">'+e.title+'</span>'
-          +'<span class="act-badge">'+(ACTBADGE[e.kind]||e.kind)+'</span>'
-          +'<span class="act-time" title="'+ago(e.ts)+'">'+absT(e.ts)+'</span></div>'
-          +'<div class="act-desc">'+e.desc+'</div></div></div>';
-      }).join('');
-    }
-
     // ---------- điều phối ----------
     let curWin='7';
     let camFilter='all';
@@ -941,14 +855,6 @@ def main():
       document.getElementById('rangelbl').textContent = days.length? (days[0]+' → '+days[days.length-1]+' ('+days.length+' ngày)') : '—';
       renderKPIs(days,prev); renderChart(curMetric,days); renderCam(days); renderGeo(days); renderCre(days);
     }
-    function switchView(v){
-      document.querySelectorAll('.nav').forEach(function(b){ b.classList.toggle('active', b.dataset.view===v); });
-      document.getElementById('view-overview').hidden = (v!=='overview');
-      document.getElementById('view-activity').hidden = (v!=='activity');
-      if(v==='activity'){ renderActivity(); }
-      else { renderChart(curMetric, daysFor(curWin)); }  // đo lại bề rộng chart sau khi hiện lại
-    }
-    document.querySelectorAll('.nav').forEach(function(b){ b.addEventListener('click',function(){ switchView(b.dataset.view); }); });
     document.querySelectorAll('.win-btn').forEach(function(b){ b.addEventListener('click',function(){
       document.querySelectorAll('.win-btn').forEach(function(x){x.classList.remove('active');});
       b.classList.add('active'); curWin=b.dataset.w; renderAll();
@@ -987,34 +893,6 @@ def main():
       tr.after(sub); tr.classList.add('open');
     });
 
-    // ---------- nút Pull data thủ công (chỉ hoạt động khi mở qua serve.py) ----------
-    (function(){
-      const btn=document.getElementById('pullBtn'), msg=document.getElementById('pullMsg');
-      if(!btn) return;
-      // Nút chỉ có ý nghĩa khi mở qua serve.py local. Trên host tĩnh (Cloudflare) → ẩn hẳn.
-      const local=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-      if(!local){ btn.style.display='none'; if(msg) msg.style.display='none'; return; }
-      function setMsg(t,cls){ msg.textContent=t||''; msg.className='pull-msg'+(cls?(' '+cls):''); }
-      let timer=null;
-      function stop(){ if(timer){ clearInterval(timer); timer=null; } btn.disabled=false; btn.classList.remove('loading'); }
-      function poll(){
-        fetch('api/status',{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
-          if(s.running){ setMsg('Đang pull + dựng lại dashboard…'); return; }
-          stop();
-          if(s.ok){ setMsg('Xong! Đang tải lại…','ok'); setTimeout(function(){ location.reload(); },800); }
-          else { setMsg('Pull lỗi — kiểm tra logs/.','err'); }
-        }).catch(function(){ stop(); setMsg('Mất kết nối server local.','err'); });
-      }
-      btn.addEventListener('click',function(){
-        btn.disabled=true; btn.classList.add('loading'); setMsg('Đang khởi động pull…');
-        fetch('api/pull',{method:'POST'}).then(function(r){return r.json();}).then(function(){
-          timer=setInterval(poll,2500); setTimeout(poll,1200);
-        }).catch(function(){
-          stop(); setMsg('Nút chỉ chạy khi mở dashboard qua server local: python3 serve.py','err');
-        });
-      });
-    })();
-
     // ---------- thu gọn sidebar (desktop) ----------
     (function(){
       const app=document.querySelector('.app');
@@ -1036,7 +914,7 @@ def main():
        .replace("__DCRE__", j_dcre).replace("__DCAM__", j_dcam).replace("__COBJ__", j_cobj) \
        .replace("__CSTAT__", j_cstat).replace("__DACADJ__", j_dacam).replace("__DCREGEO__", j_dcregeo) \
        .replace("__DCAMGEO__", j_dcamgeo) \
-       .replace("__ANGN__", j_angn).replace("__ACTS__", j_acts).replace("__QR__", j_qr).replace("__FX__", f"{fx:.2f}") \
+       .replace("__ANGN__", j_angn).replace("__QR__", j_qr).replace("__FX__", f"{fx:.2f}") \
        .replace("__D1CUT__", json.dumps(d1cut))
 
     html = f"""<meta charset="utf-8">
@@ -1071,17 +949,6 @@ def main():
   .nav svg {{ width:16px; height:16px; flex-shrink:0; }}
   .nav-sec {{ color:var(--mut); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; margin:16px 11px 5px; font-weight:600; }}
   .side-foot {{ margin-top:auto; color:var(--mut); font-size:11px; padding:12px 8px 0; border-top:1px solid var(--line); line-height:1.6; }}
-  .pull-btn {{ margin-top:11px; width:100%; appearance:none; border:1px solid var(--line); background:var(--card2);
-          color:var(--acc); font:inherit; font-size:12px; font-weight:600; padding:8px 10px; border-radius:8px;
-          cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px; transition:background .12s; }}
-  .pull-btn:hover {{ background:#e6ecf8; }}
-  .pull-btn:disabled {{ opacity:.6; cursor:default; }}
-  .pull-btn:focus-visible {{ outline:2px solid var(--acc); outline-offset:1px; }}
-  .pull-btn svg {{ width:14px; height:14px; }}
-  .pull-btn.loading svg {{ animation:spin 1s linear infinite; }}
-  @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
-  .pull-msg {{ margin-top:8px; font-size:10.5px; line-height:1.45; }}
-  .pull-msg.ok {{ color:var(--good); }} .pull-msg.err {{ color:var(--bad); }}
   .main {{ flex:1; min-width:0; padding:26px 34px 60px; }}
   .content {{ max-width:none; width:100%; }}
   .page-h {{ font-size:21px; margin:0 0 4px; letter-spacing:-.01em; }}
@@ -1096,23 +963,6 @@ def main():
   .side-toggle svg {{ width:17px; height:17px; }}
   h1 {{ font-size:23px; margin:0 0 4px; letter-spacing:-.01em; }}
   .sub {{ color:var(--mut); margin:0; font-size:13px; }}
-  .act-list {{ display:flex; flex-direction:column; gap:10px; }}
-  .act {{ display:flex; gap:14px; background:var(--card); border:1px solid var(--line); border-radius:10px;
-          padding:14px 16px; box-shadow:0 1px 2px rgba(23,32,51,.04); }}
-  .act-ic {{ width:33px; height:33px; border-radius:9px; flex-shrink:0; display:grid; place-items:center; color:#fff; }}
-  .act-ic svg {{ width:16px; height:16px; }}
-  .act-sync .act-ic {{ background:var(--acc); }}
-  .act-build .act-ic {{ background:#3a5a64; }}
-  .act-report .act-ic {{ background:var(--good); }}
-  .act-error .act-ic {{ background:var(--bad); }}
-  .act-body {{ flex:1; min-width:0; }}
-  .act-top {{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }}
-  .act-title {{ font-weight:650; font-size:14px; }}
-  .act-badge {{ font-size:10.5px; font-weight:600; color:var(--mut); background:var(--card2); border:1px solid var(--line);
-          border-radius:5px; padding:1px 7px; }}
-  .act-time {{ margin-left:auto; color:var(--mut); font-size:12px; white-space:nowrap; }}
-  .act-desc {{ color:var(--mut); font-size:12.5px; margin-top:4px; }}
-  .empty {{ color:var(--mut); text-align:center; padding:48px 20px; background:var(--card); border:1px dashed var(--line); border-radius:10px; }}
   .seg {{ display:inline-flex; gap:2px; background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:3px; }}
   .seg-btn,.win-btn,.cam-btn {{ appearance:none; border:0; background:transparent; color:var(--mut); font:inherit; font-size:12.5px; font-weight:600;
              padding:6px 13px; border-radius:6px; cursor:pointer; transition:background .12s,color .12s; }}
@@ -1251,7 +1101,7 @@ def main():
   <aside class="side">
     <div class="brand"><span class="logo">M</span> MTD Dashboard</div>
     <div class="nav-sec">Apps</div>
-    <button class="nav active" data-view="overview" aria-label="Cardia">
+    <button class="nav active" aria-label="Cardia">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
       Cardia
     </button>
@@ -1336,21 +1186,6 @@ def main():
           <tbody id="creBody"></tbody>
         </table></div>
       </div>
-    </section>
-
-    <section id="view-activity" class="content" hidden>
-      <div class="head">
-        <div class="head-l">
-          <button class="side-toggle" aria-label="Ẩn/hiện menu" title="Ẩn/hiện menu">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-          </button>
-          <div>
-            <h1 class="page-h">Activity Log</h1>
-            <p class="page-sub">Nhật ký pull data + sinh dashboard/báo cáo của pipeline tự động (logs/)</p>
-          </div>
-        </div>
-      </div>
-      <div class="act-list" id="actList"></div>
     </section>
   </main>
 </div>

@@ -6,7 +6,7 @@ import os, sys, csv, json, re, glob, pathlib
 from collections import defaultdict
 
 HERE = pathlib.Path(__file__).resolve().parent
-CRE_RE = re.compile(r"(CAR_A\d+_[A-Z]+_H\d+_(?:EN|US))")
+CRE_RE = re.compile(r"(CAR_A\d+_[A-Z]+_[A-Z]*\d+_(?:EN|US))")
 
 def latest_export():
     if len(sys.argv) > 1:
@@ -59,7 +59,7 @@ def analyze_meta(d, fx):
     with open(d / "meta_ad.csv") as fp:
         for r in csv.DictReader(fp):
             m = CRE_RE.search(r["ad_name"])
-            cid = m.group(1) if m else "(no-CAR-id)"
+            cid = m.group(1) if m else (r["ad_name"].strip() or "(unnamed)")
             spend=f(r["spend"]); impr=int(f(r["impressions"]))
             lctr=f(r["inline_link_click_ctr"]); ins=int(f(r["installs"]))
             v3=int(f(r["video_3s"]))
@@ -67,13 +67,13 @@ def analyze_meta(d, fx):
             a[0]+=spend; a[1]+=impr; a[2]+=lctr/100*impr; a[3]+=ins; a[4]+=v3
             if r["quality_ranking"] not in ("","UNKNOWN"): qr[cid]=r["quality_ranking"]
     print(f"\n### META theo creative (FX={fx:,.0f} VND/$)")
-    print(f"{'creative':<22}{'impr':>8}{'inst':>6}{'CPI$':>8}{'linkCTR%':>9}{'hook%':>7}  QR")
+    print(f"{'creative':<36}{'impr':>8}{'inst':>6}{'CPI$':>8}{'linkCTR%':>9}{'hook%':>7}  QR")
     for k,v in sorted(agg.items(), key=lambda x:-x[1][1]):
         spend,impr,lc,ins,v3,_ = v
         cpi=(spend/fx)/ins if ins else 0
         ctr=lc/impr*100 if impr else 0
         hook=v3/impr*100 if impr else 0
-        print(f"{k:<22}{impr:>8}{ins:>6}{cpi:>8.3f}{ctr:>9.2f}{hook:>7.1f}  {qr.get(k,'-')}")
+        print(f"{k[:35]:<36}{impr:>8}{ins:>6}{cpi:>8.3f}{ctr:>9.2f}{hook:>7.1f}  {qr.get(k,'-')}")
     return agg
 
 # ---------- SESSION CHECK (retention thật hay tracking đứt) ----------

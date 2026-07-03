@@ -44,8 +44,12 @@ launchctl unload ~/Library/LaunchAgents/com.cardia.autopull.plist
 > Muốn bật lại: `launchctl load ~/Library/LaunchAgents/com.cardia.autopull.plist`
 
 ## Lưu ý vận hành
-- **Cron GitHub theo giờ UTC**, có thể trễ 5–15 phút lúc tải cao — không sao vì data settle theo ngày.
-- **GitHub tạm dừng scheduled workflow sau 60 ngày repo không có commit mới.** Nếu ngừng chạy,
-  chỉ cần push 1 commit bất kỳ (hoặc bấm Run workflow) để kích hoạt lại.
+- **Cron GitHub theo giờ UTC**, hay bị trễ/bỏ mốc lúc tải cao (thực tế 01–03/07 bị drop rất nặng ở `*/30`).
+  Đã né bằng 2 lớp: (1) cron đặt **phút 7** (tránh peak :00/:30); (2) **watchdog trên Mac**
+  (`watchdog_dispatch.sh` + launchd `com.cardia.watchdog`, phút 37 mỗi giờ): run cuối quá 75 phút
+  → tự `gh workflow run` (dispatch không bao giờ bị drop). Máy tắt thì chỉ còn lớp (1).
+- **Rule 60 ngày (GitHub tự tắt scheduled workflow nếu repo không có commit): đã tự giải** —
+  mỗi ngày workflow commit 1 snapshot exports vào nhánh `data` (run 22–23h VN) nên repo luôn active.
+- **Lịch sử data:** nhánh `data` → `snapshots/<YYYY-MM-DD>/` = bộ CSV "số nhìn thấy hôm đó".
 - Sửa tần suất: đổi dòng `cron:` trong `.github/workflows/pipeline.yml`.
 - Đổi token/secret sau này: chạy lại `push-secrets.sh` hoặc sửa trực tiếp trong Settings → Secrets.

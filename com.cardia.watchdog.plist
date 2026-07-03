@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Cardia watchdog: phút 37 mỗi giờ, check GitHub Actions có bỏ mốc cron không (run cuối >75p)
+     → tự kích workflow_dispatch qua gh. Lưới dự phòng khi máy Mac thức; lịch chính = cron GitHub phút 7.
+     KHÁC com.cardia.autopull (chạy pipeline local, ĐÃ TẮT) — watchdog chỉ gọi API GitHub, rất nhẹ. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cardia.watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/watchdog_dispatch.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict><key>Minute</key><integer>37</integer></dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/logs/watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/khanhnguyen/Desktop/Cardia/03-tracking-attribution/auto-pull/logs/watchdog.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

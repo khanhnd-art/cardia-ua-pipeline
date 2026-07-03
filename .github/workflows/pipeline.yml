@@ -13,6 +13,10 @@ concurrency:
   group: cardia-pipeline
   cancel-in-progress: false
 
+# contents:write để push snapshot exports vào nhánh data
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -72,6 +76,34 @@ jobs:
       # Không cốt lõi cho live URL → best-effort, lỗi không làm fail run.
       - name: Analyze (best-effort)
         run: python3 analyze.py || true
+
+      # ---- Snapshot exports → nhánh data (lịch sử "số nhìn thấy hôm X") ----
+      # Chỉ commit 1 LẦN/NGÀY, ở run 22h/23h VN (data ngày đã gần đủ). Runner stateless nên
+      # đây là nơi duy nhất giữ lại CSV; bonus: commit hằng ngày giữ repo active → GitHub
+      # không bao giờ tự tắt scheduled workflow (rule 60 ngày không có commit).
+      - uses: actions/checkout@v5
+        continue-on-error: true
+        with:
+          ref: data
+          path: _data
+
+      - name: Snapshot exports → nhánh data (best-effort)
+        continue-on-error: true
+        run: |
+          set -e
+          DAY=$(date +%F); H=$(date +%H)
+          if [ "$H" -lt 22 ]; then echo "⏭ chưa tới giờ snapshot (chỉ chạy run 22h/23h VN)"; exit 0; fi
+          if [ -d "_data/snapshots/$DAY" ]; then echo "⏭ đã có snapshot $DAY"; exit 0; fi
+          [ -d "exports/$DAY" ] || { echo "⏭ không có exports/$DAY"; exit 0; }
+          mkdir -p _data/snapshots
+          cp -r "exports/$DAY" "_data/snapshots/$DAY"
+          cd _data
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "snapshot $DAY (run $(date +%H:%M) VN)"
+          git push origin data
+          echo "✅ Đã lưu snapshot $DAY vào nhánh data"
 
       - name: Xoá .env
         if: always()

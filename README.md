@@ -89,10 +89,12 @@ curl -s -H "Authorization: Bearer YOUR_API_TOKEN" \
 | Lệnh | Tác dụng | Output |
 |---|---|---|
 | `python3 analyze.py` | In bảng tổng hợp geo / campaign / creative + SESSION CHECK (+ creative-level nếu có) | stdout |
-| `python3 dashboard.py` | Sinh dashboard HTML self-contained (KPI · xu hướng ngày · geo · creative) | `dashboard.html` → publish bằng tool Artifact |
-| `python3 weekly_report.py` | Sinh báo cáo tuần Markdown + cảnh báo tự động | `../../05-analytics-reporting/weekly/<ngày>.md` |
+| `python3 dashboard.py` | Sinh dashboard HTML self-contained (KPI · xu hướng ngày · geo · creative) | `dashboard.html` → publish Cloudflare Pages |
+| `bash watchdog_dispatch.sh` | Check GitHub có bỏ mốc cron không, quá 75p thì tự kích run (launchd gọi phút 37) | `logs/watchdog.log` |
 
-Quy trình mỗi kỳ: `python3 pull_data.py && python3 analyze.py` (xem nhanh) hoặc thêm `&& python3 dashboard.py && python3 weekly_report.py` để có cả dashboard + báo cáo.
+Quy trình mỗi kỳ: `python3 pull_data.py && python3 analyze.py` (xem nhanh) hoặc thêm `&& python3 dashboard.py` để có cả dashboard. Bình thường KHÔNG cần chạy tay — GitHub Actions tự chạy hourly (xem `CLOUD-SETUP.md`).
+
+**Lịch sử data:** mỗi ngày 1 snapshot CSV được commit vào nhánh **`data`** của repo (folder `snapshots/<ngày>/`, chụp ở run 22–23h VN) — muốn xem "số nhìn thấy hôm X" thì mở nhánh đó trên GitHub.
 
 ---
 
