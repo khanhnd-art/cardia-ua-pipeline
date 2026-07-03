@@ -29,6 +29,9 @@ def analyze_adjust(d):
     LATAM = {"Venezuela, Bolivarian Republic Of","Peru","Colombia","Chile","Argentina",
              "Bolivia, Plurinational State Of","Paraguay","Uruguay","Ecuador","Mexico"}
     for r in rows:
+        net = (r.get("network", "") or "").strip().lower()
+        if net == "organic" or (not net and (r.get("campaign", "") or "").strip().lower() == "unknown"):
+            continue  # bỏ Organic — chỉ đo paid UA (như dashboard)
         ins, cost, rev = int(f(r["installs"])), f(r["cost"]), f(r["ad_revenue"])
         ret1, ret7, roas7 = f(r.get("retention_rate_d1")), f(r.get("retention_rate_d7")), f(r.get("roas_d7"))
         camp = r["campaign"].split(" (")[0]
@@ -102,6 +105,8 @@ def analyze_adjust_creative(d):
         return
     agg = defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0])  # inst, cost, rev, ret1*inst, roas7*cost
     for r in rows:
+        if (r.get("network", "") or "").strip().lower() == "organic":
+            continue
         name = r.get("creative") or r.get("adgroup") or r.get("campaign", "?")
         ins = int(f(r.get("installs"))); cost = f(r.get("cost")); rev = f(r.get("ad_revenue"))
         a = agg[name]; a[0] += ins; a[1] += cost; a[2] += rev

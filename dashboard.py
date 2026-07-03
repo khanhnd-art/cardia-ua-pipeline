@@ -184,6 +184,10 @@ def load_adjust(d):
     # slot[5]=spend Meta (VND), slot[6]=installs Meta — ghép vào sau từ load_meta_geo()
     DCAMGEO = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0, 0.0, 0])))
     for r in rows:
+        # bỏ Organic — dashboard chỉ đo paid UA (revenue organic làm ROAS "độn" vì spend không có phần đó)
+        net = (r.get("network", "") or "").strip().lower()
+        if net == "organic" or (not net and (r.get("campaign", "") or "").strip().lower() == "unknown"):
+            continue
         day = r.get("day", "")
         ins = int(f(r.get("installs"))); cost = f(r.get("cost")); rev = f(r.get("ad_revenue"))
         roas7 = f(r.get("roas_d7")); ret1 = f(r.get("retention_rate_d1"))
@@ -294,6 +298,9 @@ def load_adjust_creative(d):
     except Exception:
         return DCG
     for r in rows:
+        net = (r.get("network", "") or "").strip().lower()
+        if net == "organic":
+            continue  # bỏ Organic như load_adjust
         raw = (r.get("creative", "") or "").strip()
         m = CRE_RE.search(raw)
         # không match mã CAR → key theo nguyên tên creative (khớp tên ad Meta nếu trùng)
