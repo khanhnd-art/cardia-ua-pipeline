@@ -97,6 +97,17 @@ def geo_of(c):
     return c  # nước cụ thể không thuộc vùng nào → hiện thẳng tên nước
 
 
+def country_of(c):
+    """Như geo_of nhưng KHÔNG gom vùng — luôn trả về tên nước (chỉ chuẩn hoá GEO chính).
+    Dùng cho bảng Geo: thống kê theo từng country, top 10 + Other."""
+    low = (c or "").strip().lower()
+    if not low or low == "unknown":
+        return "Unknown"
+    if low in _GEO_LC:
+        return _GEO_LC[low]
+    return c.strip()
+
+
 # ISO-3166 alpha-2 → tên nước (khớp tên Adjust/REGION để geo_of gom đúng vùng).
 # Meta breakdown=country trả về mã ISO2; nước thiếu trong map → hiện thẳng mã.
 ISO2_NAME = {
@@ -175,7 +186,7 @@ def load_adjust(d):
         day = r.get("day", "")
         ins = int(f(r.get("installs"))); cost = f(r.get("cost")); rev = f(r.get("ad_revenue"))
         roas7 = f(r.get("roas_d7")); ret1 = f(r.get("retention_rate_d1"))
-        geo = geo_of(r.get("country", ""))
+        geo = country_of(r.get("country", ""))  # bảng Geo thống kê theo COUNTRY, không gom vùng
         # DCAMGEO key theo ĐÚNG country (không gom vùng) để so sánh từng nước
         cty = (r.get("country", "") or "").strip() or "Unknown"
         if cty.lower() == "unknown":
