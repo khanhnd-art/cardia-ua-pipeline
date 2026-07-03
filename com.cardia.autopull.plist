@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Cardia auto-pull: chạy run_pipeline.sh 5 mốc/ngày giờ VN: 10:00 / 13:00 / 16:00 / 19:00 / 22:00
-     (xem số nhiều lần trong ngày). Reporting TZ Adjust+Meta = GMT-7 (ngày đóng sổ lúc 14:00 VN);
-     pull re-fetch toàn range mỗi lần nên số ngày trước tự sửa khi settle. Data có trễ ~15'-vài giờ
-     nên >4 lần/ngày ít giá trị. Cài đặt: xem SETUP-AUTOMATION.md. Thêm/bớt mốc: sửa mảng dict dưới. -->
+<!-- Cardia auto-pull: chạy run_pipeline.sh HÀNG GIỜ giờ VN, 24/24 (00:00 → 23:00, 24 mốc/ngày),
+     miễn máy đang mở. Reporting TZ Adjust+Meta = GMT-7 (ngày đóng sổ lúc 14:00 VN); pull re-fetch toàn
+     range mỗi lần nên số ngày trước tự sửa khi settle. Cài đặt: xem SETUP-AUTOMATION.md. Thêm/bớt mốc: sửa mảng dict dưới. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -17,11 +16,30 @@
 
     <key>StartCalendarInterval</key>
     <array>
+        <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>1</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
         <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
     </array>
 
     <key>StandardOutPath</key>

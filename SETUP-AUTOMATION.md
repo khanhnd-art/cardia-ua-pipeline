@@ -1,5 +1,8 @@
 # Tự động hoá pipeline (auto-run định kỳ)
 
+> ⚠️ **Từ 01/07/2026 pipeline chạy chính thức trên GitHub Actions** (hourly, phút 7 mỗi giờ — xem `CLOUD-SETUP.md` + `.github/workflows/pipeline.yml`), không phụ thuộc máy Mac mở.
+> **launchd local bên dưới ĐÃ TẮT** (`launchctl bootout`) để không deploy chồng — chỉ bật lại làm phương án dự phòng khi GitHub Actions có vấn đề.
+
 Mục tiêu: máy tự `pull → analyze → dashboard → weekly report` định kỳ, KHỎI chạy tay.
 
 ## 2 lớp tự động (khác nhau)
@@ -15,7 +18,7 @@ Mục tiêu: máy tự `pull → analyze → dashboard → weekly report` địn
 
 ## Cài lớp A — launchd (macOS)
 
-**Lịch mặc định:** **5 mốc/ngày giờ VN — 10:00 / 13:00 / 16:00 / 19:00 / 22:00** (xem số nhiều lần trong ngày). Reporting TZ của Adjust+Meta là GMT‑7 (ngày đóng sổ lúc 14:00 VN), pull re-fetch toàn range mỗi lần nên số ngày trước **tự sửa khi settle**. Data có trễ ~15'–vài giờ → chạy >4 lần/ngày ít giá trị thêm.
+**Lịch của plist dự phòng:** hourly — 24 mốc/ngày giờ VN, phút 0 mỗi giờ (miễn máy đang mở; launchd bỏ qua mốc khi máy sleep, không chạy bù dồn). Reporting TZ của Adjust+Meta là GMT‑7 (ngày đóng sổ lúc 14:00 VN), pull re-fetch toàn range mỗi lần nên số ngày trước **tự sửa khi settle**.
 
 Đổi số mốc: sửa mảng `<dict>` trong `StartCalendarInterval` (plist). Muốn 1 lần/ngày: để 1 dict. Muốn đều mỗi N giây bất kể giờ: thay bằng `<key>StartInterval</key><integer>10800</integer>` (3h).
 

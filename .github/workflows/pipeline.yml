@@ -1,10 +1,11 @@
 name: Cardia UA pipeline
 
-# Chạy MỖI 30 PHÚT. Data settle theo GMT-7 nên phủ đủ mốc 14:00 VN.
+# Chạy HOURLY (phút 7 mỗi giờ — tránh phút 0 vì GitHub quá tải, cron trễ 5–15').
+# Data settle theo GMT-7 nên phủ đủ mốc 14:00 VN.
 # workflow_dispatch: cho phép bấm chạy tay ở tab Actions để test.
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch: {}
 
 # Không cho 2 lần chạy chồng nhau (tránh 2 deploy Cloudflare đua nhau).
