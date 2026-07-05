@@ -5,7 +5,7 @@ Chỉ dùng thư viện chuẩn của Python 3 — KHÔNG cần pip install.
 
 Chạy:  python3 pull_data.py
 """
-import os, sys, csv, json, datetime, urllib.parse, urllib.request, urllib.error, pathlib
+import os, sys, csv, json, time, datetime, urllib.parse, urllib.request, urllib.error, pathlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 META_API_VERSION = "v21.0"
@@ -34,14 +34,26 @@ def load_env():
     return env
 
 
-def http_get(url, headers=None):
-    req = urllib.request.Request(url, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            return r.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        msg = e.read().decode("utf-8", "ignore")
-        raise RuntimeError(f"HTTP {e.code}: {msg[:500]}")
+def http_get(url, headers=None, retries=3):
+    """GET với retry cho lỗi 5xx/timeout (Meta hay trả 500 'unknown error' thoáng qua)."""
+    last = None
+    for i in range(retries):
+        req = urllib.request.Request(url, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return r.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            msg = e.read().decode("utf-8", "ignore")
+            last = RuntimeError(f"HTTP {e.code}: {msg[:500]}")
+            if e.code < 500:
+                raise last          # 4xx = lỗi thật (token/query) — retry vô ích
+        except (urllib.error.URLError, TimeoutError) as e:
+            last = RuntimeError(f"Network: {e}")
+        if i < retries - 1:
+            wait = 10 * (i + 1)
+            print(f"   ↻ retry sau {wait}s ({last})")
+            time.sleep(wait)
+    raise last
 
 
 def _action_value(actions, key):
@@ -216,6 +228,18 @@ def pull_adjust(env, since, until, outdir):
             print(f"✅ Adjust creative-level → {cout.name}")
         except Exception as e:
             print(f"⚠️  Bỏ qua Adjust creative-level (không ảnh hưởng pull chính): {e}")
+
+    # Query app SAYA (tùy chọn) — nguồn duy nhất cho trang saya.html (spend TikTok đã nằm
+    # trong Adjust qua partner link). Lỗi ở đây KHÔNG làm hỏng pull chính.
+    sq = env.get("ADJUST_SAYA_QUERY")
+    if sq:
+        try:
+            sbody = http_get(_adjust_url(sq, since, until), headers=hdr)
+            sout = outdir / "adjust_saya.csv"
+            sout.write_text(sbody, encoding="utf-8")
+            print(f"✅ Adjust Saya → {sout.name}")
+        except Exception as e:
+            print(f"⚠️  Bỏ qua Adjust Saya (không ảnh hưởng pull chính): {e}")
 
 
 def main():

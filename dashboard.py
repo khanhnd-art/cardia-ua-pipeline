@@ -174,10 +174,10 @@ ISO2_NAME = {
 }
 
 
-def load_adjust(d):
+def load_adjust(d, fname="adjust_report.csv"):
     """DTOT[day]; DGEO[geo][day]; DACAM[campaign][day]; DCAMGEO[campaign][geo][day]
-    — đều =[inst,cost,rev,roas7*cost,ret1*inst]."""
-    rows = json.loads((d / "adjust_report.csv").read_text())["rows"]
+    — đều =[inst,cost,rev,roas7*cost,ret1*inst]. fname: adjust_report.csv (Cardia) / adjust_saya.csv (Saya)."""
+    rows = json.loads((d / fname).read_text())["rows"]
     DTOT = defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0])
     DGEO = defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0]))
     DACAM = defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0]))
@@ -339,62 +339,74 @@ def jnum(x):
     return round(x, 4)
 
 
-def main():
-    d = latest_export()
-    if not d:
-        sys.exit("❌ Chưa có export nào trong exports/")
+def build(d, app):
+    """Sinh 1 trang dashboard cho 1 app.
+    app="cardia": Meta + Adjust đầy đủ → dashboard.html
+    app="saya":   CHỈ Adjust (spend TikTok đã đẩy sang Adjust qua partner link) → saya.html"""
+    is_saya = (app == "saya")
+    app_title = "Saya" if is_saya else "Cardia"
+    src = "adjust_saya.csv" if is_saya else "adjust_report.csv"
     date = d.name
     # "Last updated" = giờ PULL THẬT (mtime file Adjust ghi bởi pull_data), KHÔNG phải giờ build UI.
     # → rebuild dashboard không pull lại sẽ không làm đổi số này.
     try:
-        pulled_ts = (d / "adjust_report.csv").stat().st_mtime
+        pulled_ts = (d / src).stat().st_mtime
     except OSError:
         pulled_ts = datetime.datetime.now().timestamp()
     built = datetime.datetime.fromtimestamp(pulled_ts).strftime("%d/%m/%Y %H:%M")
-    DTOT, DGEO, DACAM_ADJ, DCAMGEO = load_adjust(d)
-    DCRE, QR = load_meta(d)
-    DCREGEO = load_adjust_creative(d)
-    DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d)
-    # ghép spend+installs Meta theo country vào DCAMGEO/DCREGEO (slot spend VND + inst Meta).
-    # CANON: chuẩn hoá tên nước về đúng spelling Adjust (lowercase → tên Adjust) để merge khớp.
-    META_CG = load_meta_geo(d)
-    META_CRG = load_meta_creative_geo(d)
-    CANON = {}
-    for src in (DCAMGEO, DCREGEO):
-        for geos in src.values():
-            for cty in geos:
-                CANON.setdefault(cty.lower(), cty)
-    for cam, geos in META_CG.items():
-        for cty, dd in geos.items():
-            key = CANON.get(cty.lower(), cty)
-            for day, a in dd.items():
-                DCAMGEO[cam][key][day][5] += a[0]
-                DCAMGEO[cam][key][day][6] += a[1]
-    for cid, geos in META_CRG.items():
-        for cty, dd in geos.items():
-            key = CANON.get(cty.lower(), cty)
-            for day, a in dd.items():
-                DCREGEO[cid][key][day][4] += a[0]
-                DCREGEO[cid][key][day][5] += a[1]
+    DTOT, DGEO, DACAM_ADJ, DCAMGEO = load_adjust(d, src)
+    if is_saya:
+        # Saya v1: không có nguồn Meta/TikTok API — các cấu trúc Meta để rỗng, JS tự bỏ qua.
+        DCRE, QR = {}, {}
+        DCREGEO = {}
+        DCAM, CAM_OBJ, CAM_STATUS = {}, {}, {}
+    else:
+        DCRE, QR = load_meta(d)
+        DCREGEO = load_adjust_creative(d)
+        DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d)
+        # ghép spend+installs Meta theo country vào DCAMGEO/DCREGEO (slot spend VND + inst Meta).
+        # CANON: chuẩn hoá tên nước về đúng spelling Adjust (lowercase → tên Adjust) để merge khớp.
+        META_CG = load_meta_geo(d)
+        META_CRG = load_meta_creative_geo(d)
+        CANON = {}
+        for src_map in (DCAMGEO, DCREGEO):
+            for geos in src_map.values():
+                for cty in geos:
+                    CANON.setdefault(cty.lower(), cty)
+        for cam, geos in META_CG.items():
+            for cty, dd in geos.items():
+                key = CANON.get(cty.lower(), cty)
+                for day, a in dd.items():
+                    DCAMGEO[cam][key][day][5] += a[0]
+                    DCAMGEO[cam][key][day][6] += a[1]
+        for cid, geos in META_CRG.items():
+            for cty, dd in geos.items():
+                key = CANON.get(cty.lower(), cty)
+                for day, a in dd.items():
+                    DCREGEO[cid][key][day][4] += a[0]
+                    DCREGEO[cid][key][day][5] += a[1]
 
     all_days = sorted(DTOT.keys())
-    # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
-    # Adjust-only mới nhất làm "hôm nay" thì bảng Campaign/Creative (nguồn Meta) rỗng + lệch trục
-    # Today/Yesterday. → cắt trục ngày tới ngày Meta mới nhất; ngày sau tự hiện khi Meta chốt sổ (re-fetch).
-    meta_days = set()
-    for _fn in ("meta_campaign.csv", "meta_ad.csv"):
-        _p = d / _fn
-        if _p.exists():
-            for _r in csv.DictReader(open(_p)):
-                _dt = (_r.get("date") or "").strip()
-                if _dt:
-                    meta_days.add(_dt)
-    if meta_days:
-        _mmax = max(meta_days)
-        all_days = [x for x in all_days if x <= _mmax]
-    meta_vnd = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv")))
-    total_cost = sum(DTOT[k][1] for k in DTOT)
-    fx = meta_vnd / total_cost if total_cost else 25000
+    if is_saya:
+        fx = 25000.0  # không dùng ở trang Saya (không có spend VND) — chỉ để JS không chia 0
+    else:
+        # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
+        # Adjust-only mới nhất làm "hôm nay" thì bảng Campaign/Creative (nguồn Meta) rỗng + lệch trục
+        # Today/Yesterday. → cắt trục ngày tới ngày Meta mới nhất; ngày sau tự hiện khi Meta chốt sổ (re-fetch).
+        meta_days = set()
+        for _fn in ("meta_campaign.csv", "meta_ad.csv"):
+            _p = d / _fn
+            if _p.exists():
+                for _r in csv.DictReader(open(_p)):
+                    _dt = (_r.get("date") or "").strip()
+                    if _dt:
+                        meta_days.add(_dt)
+        if meta_days:
+            _mmax = max(meta_days)
+            all_days = [x for x in all_days if x <= _mmax]
+        meta_vnd = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv")))
+        total_cost = sum(DTOT[k][1] for k in DTOT)
+        fx = meta_vnd / total_cost if total_cost else 25000
     # Mốc D1 chín: neo theo NGÀY DATA MỚI NHẤT trong snapshot (không phải hôm nay) — vì retention
     # 1-2 ngày cuối bị đếm thiếu do lúc pull ngày chưa trọn. Install-day X đo được D1 khi X+1 đã
     # trọn ngày & đã settle → X <= (ngày mới nhất - 2). Cohort mới hơn → "chưa chín", D1 hiển thị "–".
@@ -422,9 +434,11 @@ def main():
                                 for g, dd in geos.items()} for c, geos in DCAMGEO.items()}, ensure_ascii=False)
     j_angn = json.dumps(ANGLE_NAME)
     j_qr = json.dumps(QR)
+    # Ngưỡng màu CPI theo app: Cardia (India/EN, CPI thấp) vs Saya (US Tier-1, CPI cao hơn hẳn)
+    j_cpit = json.dumps([1.5, 3.0] if is_saya else [0.12, 0.3])
 
     APP = """
-    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__;
+    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__, CPI_T = __CPIT__;
     const GREEN='#0f9d6b', RED='#d6454f';
     function DT(d){ return DTOT[d] || [0,0,0,0,0]; }
 
@@ -467,7 +481,7 @@ def main():
       {k:'spend',   label:'Spend',   up:true, val:t=>t.cost, fmt:fmtUSD, spark:GREEN},
       {k:'revenue', label:'Revenue', up:true, val:t=>t.rev,  fmt:fmtUSD, spark:GREEN},
       {k:'cpi',     label:'CPI',     up:false,val:t=>t.cpi,  fmt:v=>'$'+v.toFixed(3), spark:RED,
-        status:v=>v<0.12?'good':v<0.3?'warn':'bad'},
+        status:v=>v<CPI_T[0]?'good':v<CPI_T[1]?'warn':'bad'},
       {k:'roas',    label:'ROAS (cum)',up:true,val:t=>t.roas,fmt:v=>v.toFixed(2)+'x', spark:GREEN,
         status:v=>v>=1?'good':v>=0.5?'warn':'bad'},
       {k:'d1',      label:'D1 retention',up:true,val:t=>t.d1,fmt:v=>v.toFixed(1)+'%', spark:GREEN,
@@ -654,7 +668,7 @@ def main():
       return {fill:'hsl(159,'+S+'%,'+L+'%)', txt: L>=60?'var(--txt)':'#fff'}; }
     function geoCells(x){
       const cpi=x.inst?x.cost/x.inst:0,roas=x.cost?x.rev/x.cost:0,rd7=x.cost?x.r7c/x.cost:0,ltv=x.inst?x.rev/x.inst:0;
-      const cc=cpi<0.12?'good':cpi<0.3?'warn':'bad';
+      const cc=cpi<CPI_T[0]?'good':cpi<CPI_T[1]?'warn':'bad';
       const hasD1=x.matI>0, d1=hasD1?x.r1m/x.matI*100:0;   // chỉ tính D1 trên cohort đã chín
       const dc=!hasD1?'':(d1>6?'good':d1>3?'warn':'bad');
       const d1cell=hasD1?d1.toFixed(1):'<span class="adjf" title="Cohort chưa đủ chín để đo D1 (install < 2 ngày so với data mới nhất) — chưa có số, không phải 0%">–</span>';
@@ -736,7 +750,25 @@ def main():
         p.addEventListener('mouseleave',hideGeoTip);
       });
     }
+    // bảng campaign THUẦN Adjust (trang Saya — không có nguồn ad-platform API).
+    // DACAM_ADJ[camp][day] cùng cấu trúc DGEO → tái dùng geoCells (cùng cột với bảng GEO).
+    function renderCamAdj(days){
+      const el=document.getElementById('camAdjBody'); if(!el) return;
+      const all=Object.keys(DACAM_ADJ).map(function(g){
+        let inst=0,cost=0,rev=0,r1=0,r7c=0,matI=0,r1m=0;
+        days.forEach(function(d){ const a=DACAM_ADJ[g][d]; if(a){inst+=a[0];cost+=a[1];rev+=a[2];r7c+=a[3];r1+=a[4]; if(d<=D1CUT){matI+=a[0];r1m+=a[4];}} });
+        return {g:g,inst:inst,cost:cost,rev:rev,r1:r1,r7c:r7c,matI:matI,r1m:r1m};
+      }).filter(function(x){return x.inst>0||x.cost>0;}).sort(function(a,b){return b.cost-a.cost;});
+      if(!all.length){
+        el.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này — campaign chưa chạy</td></tr>';
+        return;
+      }
+      const total=all.reduce(function(s,x){s.inst+=x.inst;s.cost+=x.cost;s.rev+=x.rev;s.r1+=x.r1;s.r7c+=x.r7c;s.matI+=x.matI;s.r1m+=x.r1m;return s;},{inst:0,cost:0,rev:0,r1:0,r7c:0,matI:0,r1m:0});
+      el.innerHTML=all.map(function(x,i){ return '<tr'+(i%2?' class="zeb"':'')+'><td>'+x.g+'</td>'+geoCells(x)+'</tr>'; }).join('')
+        +'<tr class="trow-tot"><td>Total</td>'+geoCells(total)+'</tr>';
+    }
     function renderCre(days){
+      if(!document.getElementById('creBody')) return;
       const rows=Object.keys(DCRE).map(function(c){
         let sp=0,impr=0,lc=0,inst=0,v3=0;
         days.forEach(function(d){ const a=DCRE[c][d]; if(a){sp+=a[0];impr+=a[1];lc+=a[2];inst+=a[3];v3+=a[4];} });
@@ -772,7 +804,7 @@ def main():
       return '<div class="subwrap">'
         +'<table class="subt"><thead><tr><th>Country</th><th>Inst</th><th>Spend</th><th>CPI</th><th>Rev</th><th>LTV</th><th>ROAS</th><th>D1</th></tr></thead><tbody>'
         +rows.map(function(x,i){ const cpi=x.inst?x.cost/x.inst:0,roas=x.cost?x.rev/x.cost:0,ltv=x.inst?x.rev/x.inst:0;
-          const cc=cpi<0.12?'good':cpi<0.3?'warn':'bad';
+          const cc=cpi<CPI_T[0]?'good':cpi<CPI_T[1]?'warn':'bad';
           const d1=x.matInst>0?(x.r1m/x.matInst*100).toFixed(1):'<span class="adjf" title="Cohort chưa đủ chín để đo D1 (install < 2 ngày) hoặc chưa có install Adjust — chưa có số, không phải 0%">–</span>';
           const flag=x.useM?'':'<span class="adjf" title="Meta không tách spend cho country này — đang dùng Adjust cost (thường thiếu)">~adj</span>';
           return '<tr'+(i>=10?' class="cty-x"':'')+'><td>'+x.geo+'</td><td>'+x.inst.toLocaleString()+'</td><td>$'+x.cost.toFixed(2)+flag+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td><td>$'+x.rev.toFixed(2)+'</td><td>$'+ltv.toFixed(3)+'</td><td>'+roas.toFixed(2)+'x</td><td>'+d1+'</td></tr>';
@@ -802,7 +834,7 @@ def main():
       return '<div class="subwrap">'
         +'<table class="subt"><thead><tr><th>Country</th><th>Inst</th><th>Spend</th><th>CPI</th><th>Rev</th><th>LTV</th><th>ROAS</th><th>D1</th></tr></thead><tbody>'
         +rows.map(function(x,i){ const cpi=x.inst?x.cost/x.inst:0,roas=x.cost?x.rev/x.cost:0,ltv=x.inst?x.rev/x.inst:0;
-          const cc=cpi<0.12?'good':cpi<0.3?'warn':'bad';
+          const cc=cpi<CPI_T[0]?'good':cpi<CPI_T[1]?'warn':'bad';
           const d1=x.matInst>0?(x.r1m/x.matInst*100).toFixed(1):'<span class="adjf" title="Cohort chưa đủ chín để đo D1 (install < 2 ngày) hoặc chưa có install Adjust — chưa có số, không phải 0%">–</span>';
           const flag=x.useM?'':'<span class="adjf" title="Meta không tách spend cho geo này — đang dùng Adjust cost (thường thiếu)">~adj</span>';
           return '<tr'+(i>=10?' class="cty-x"':'')+'><td>'+x.geo+'</td><td>'+x.inst.toLocaleString()+'</td><td>$'+x.cost.toFixed(2)+flag+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td><td>$'+x.rev.toFixed(2)+'</td><td>$'+ltv.toFixed(3)+'</td><td>'+roas.toFixed(2)+'x</td><td>'+d1+'</td></tr>';
@@ -819,6 +851,7 @@ def main():
       return '<span class="stat '+cls+'" title="'+s+'"><span class="dot"></span>'+lbl+'</span>';
     }
     function renderCam(days){
+      if(!document.getElementById('camBody')) return;
       const rows=Object.keys(DCAM).map(function(c){
         let sp=0,impr=0,lc=0,inst=0,v3=0;
         days.forEach(function(d){ const a=DCAM[c][d]; if(a){sp+=a[0];impr+=a[1];lc+=a[2];inst+=a[3];v3+=a[4];} });
@@ -828,7 +861,7 @@ def main():
         .sort(function(a,b){return b.sp-a.sp;});
       document.getElementById('camBody').innerHTML = rows.length? rows.map(function(x,i){
         const cost=x.sp/FX,cpi=x.inst?cost/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0,cvr=x.lc?x.inst/x.lc*100:0;
-        const cc=cpi<0.12?'good':cpi<0.3?'warn':'bad',tc=ctr>6?'good':ctr>3?'warn':'bad';
+        const cc=cpi<CPI_T[0]?'good':cpi<CPI_T[1]?'warn':'bad',tc=ctr>6?'good':ctr>3?'warn':'bad';
         const obj=CAM_OBJ[x.c]||'—';
         let rev=0; const ac=DACAM_ADJ[x.c];
         if(ac){ days.forEach(function(d){ const a=ac[d]; if(a){ rev+=a[2]; } }); }
@@ -860,7 +893,7 @@ def main():
     function renderAll(){
       const days=daysFor(curWin), prev=prevFor(curWin);
       document.getElementById('rangelbl').textContent = days.length? (days[0]+' → '+days[days.length-1]+' ('+days.length+' ngày)') : '—';
-      renderKPIs(days,prev); renderChart(curMetric,days); renderCam(days); renderGeo(days); renderCre(days);
+      renderKPIs(days,prev); renderChart(curMetric,days); renderCam(days); renderCamAdj(days); renderGeo(days); renderCre(days);
     }
     document.querySelectorAll('.win-btn').forEach(function(b){ b.addEventListener('click',function(){
       document.querySelectorAll('.win-btn').forEach(function(x){x.classList.remove('active');});
@@ -882,8 +915,9 @@ def main():
     });
     window.addEventListener('scroll',hideGeoTip,true);
 
-    // click 1 creative → mở/đóng breakdown geo thật (Adjust)
-    document.getElementById('creBody').addEventListener('click',function(e){
+    // click 1 creative → mở/đóng breakdown geo thật (Adjust). Trang Saya không có 2 bảng này → guard null.
+    const creB=document.getElementById('creBody');
+    if(creB) creB.addEventListener('click',function(e){
       const tr=e.target.closest('tr.crow.expandable'); if(!tr) return;
       const nx=tr.nextElementSibling;
       if(nx&&nx.classList.contains('subrow')){ nx.remove(); tr.classList.remove('open'); return; }
@@ -891,7 +925,8 @@ def main():
       sub.innerHTML='<td colspan="9">'+creGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
       tr.after(sub); tr.classList.add('open');
     });
-    document.getElementById('camBody').addEventListener('click',function(e){
+    const camB=document.getElementById('camBody');
+    if(camB) camB.addEventListener('click',function(e){
       const tr=e.target.closest('tr.crow.expandable'); if(!tr) return;
       const nx=tr.nextElementSibling;
       if(nx&&nx.classList.contains('subrow')){ nx.remove(); tr.classList.remove('open'); return; }
@@ -922,12 +957,60 @@ def main():
        .replace("__CSTAT__", j_cstat).replace("__DACADJ__", j_dacam).replace("__DCREGEO__", j_dcregeo) \
        .replace("__DCAMGEO__", j_dcamgeo) \
        .replace("__ANGN__", j_angn).replace("__QR__", j_qr).replace("__FX__", f"{fx:.2f}") \
-       .replace("__D1CUT__", json.dumps(d1cut))
+       .replace("__D1CUT__", json.dumps(d1cut)).replace("__CPIT__", j_cpit)
+
+    # ----- phần HTML khác nhau giữa 2 app -----
+    ICON_CARDIA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>'
+    ICON_SAYA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>'
+    if is_saya:
+        # Cloudflare Pages: trang Cardia được upload cả index.html LẪN dashboard.html
+        # (publish_cloudflare.sh) → link "dashboard.html" chạy đúng cả local lẫn cloud.
+        nav_apps = (f'<a class="nav" href="dashboard.html" aria-label="Cardia">{ICON_CARDIA} Cardia</a>'
+                    f'<button class="nav active" aria-label="Saya">{ICON_SAYA} Saya</button>')
+        side_foot = f'Snapshot <b>{date}</b><br>TikTok Ads · số liệu Adjust (UTC+8)'
+        page_desc = f"ROAS / CPI / retention theo geo & campaign — Saya TikTok Ads (Adjust), snapshot {date}"
+        campaign_panel = """
+      <div class="panel">
+        <h2>Campaign (TikTok · Adjust)</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Campaign</th><th>Inst</th><th>Cost</th><th>Rev</th><th>CPI</th><th>LTV</th><th>ROAS</th><th>D1</th><th>ROAS D7</th></tr></thead>
+          <tbody id="camAdjBody"></tbody>
+        </table></div>
+        <p class="note">Toàn bộ số từ Adjust (spend TikTok đẩy sang qua partner link; ngày bucket UTC+8 khớp ad account ZAS 01 &amp; TikTok Ads Manager). CTR / hook-rate theo creative cần TikTok Ads API — sẽ có ở platform mới.</p>
+      </div>"""
+        creative_panel = ""
+    else:
+        nav_apps = (f'<button class="nav active" aria-label="Cardia">{ICON_CARDIA} Cardia</button>'
+                    f'<a class="nav" href="saya.html" aria-label="Saya">{ICON_SAYA} Saya</a>')
+        side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
+        page_desc = f"ROAS / CPI / retention theo geo & creative — Cardia Meta Ads, snapshot {date}"
+        campaign_panel = """
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Campaign (Meta)</h2>
+          <div class="seg" role="tablist" aria-label="Lọc trạng thái campaign">
+            <button class="cam-btn active" data-f="all">All</button>
+            <button class="cam-btn" data-f="active">Active</button>
+          </div>
+        </div>
+        <div class="scroll"><table>
+          <thead><tr><th>Campaign</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
+          <tbody id="camBody"></tbody>
+        </table></div>
+      </div>"""
+        creative_panel = """
+      <div class="panel">
+        <h2>Creative (Meta)</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Creative</th><th class="angcol">Angle</th><th>Impr</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>hook 3s</th><th>Quality</th></tr></thead>
+          <tbody id="creBody"></tbody>
+        </table></div>
+      </div>"""
 
     html = f"""<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MTD Dashboard — {date}</title>
-<meta name="description" content="ROAS / CPI / retention theo geo & creative — Cardia Meta Ads, snapshot {date}">
+<title>MTD Dashboard · {app_title} — {date}</title>
+<meta name="description" content="{page_desc}">
 <style>
   :root {{ --bg:#f5f7fb; --card:#ffffff; --card2:#eef2f9; --line:#dde3ef; --txt:#172033;
           --mut:#5f6b82; --good:#0f9d6b; --warn:#c2790f; --bad:#d6454f; --acc:#2f6fe0; --zebra:#f6f8fd; }}
@@ -948,10 +1031,7 @@ def main():
           cursor:pointer; transition:background .12s,color .12s; }}
   .nav:hover {{ background:var(--card2); color:var(--txt); }}
   .nav.active {{ background:var(--card2); color:var(--acc); }}
-  .nav:disabled {{ cursor:default; opacity:.6; }}
-  .nav:disabled:hover {{ background:transparent; color:var(--mut); }}
-  .soon {{ margin-left:auto; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
-          color:var(--mut); background:var(--card2); border:1px solid var(--line); border-radius:5px; padding:1px 5px; white-space:nowrap; }}
+  a.nav {{ text-decoration:none; }}
   .nav:focus-visible {{ outline:2px solid var(--acc); outline-offset:1px; }}
   .nav svg {{ width:16px; height:16px; flex-shrink:0; }}
   .nav-sec {{ color:var(--mut); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; margin:16px 11px 5px; font-weight:600; }}
@@ -1108,15 +1188,8 @@ def main():
   <aside class="side">
     <div class="brand"><span class="logo">M</span> MTD Dashboard</div>
     <div class="nav-sec">Apps</div>
-    <button class="nav active" aria-label="Cardia">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
-      Cardia
-    </button>
-    <button class="nav nav-soon" disabled aria-label="Saya (coming soon)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-      Saya<span class="soon">Coming soon</span>
-    </button>
-    <div class="side-foot">Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$
+    {nav_apps}
+    <div class="side-foot">{side_foot}
     </div>
   </aside>
 
@@ -1128,7 +1201,7 @@ def main():
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
           </button>
           <div>
-            <h1 class="page-h">Cardia Dashboard</h1>
+            <h1 class="page-h">{app_title} Dashboard</h1>
             <p class="page-sub">Last updated {built}</p>
           </div>
         </div>
@@ -1158,19 +1231,7 @@ def main():
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <h2>Campaign (Meta)</h2>
-          <div class="seg" role="tablist" aria-label="Lọc trạng thái campaign">
-            <button class="cam-btn active" data-f="all">All</button>
-            <button class="cam-btn" data-f="active">Active</button>
-          </div>
-        </div>
-        <div class="scroll"><table>
-          <thead><tr><th>Campaign</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
-          <tbody id="camBody"></tbody>
-        </table></div>
-      </div>
+      {campaign_panel}
 
       <div class="panel">
         <h2>GEO (Adjust)</h2>
@@ -1186,24 +1247,31 @@ def main():
         </div>
       </div>
 
-      <div class="panel">
-        <h2>Creative (Meta)</h2>
-        <div class="scroll"><table>
-          <thead><tr><th>Creative</th><th class="angcol">Angle</th><th>Impr</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>hook 3s</th><th>Quality</th></tr></thead>
-          <tbody id="creBody"></tbody>
-        </table></div>
-      </div>
+      {creative_panel}
     </section>
   </main>
 </div>
 <script>{APP}</script>"""
 
-    out = HERE / "dashboard.html"
+    out = HERE / ("saya.html" if is_saya else "dashboard.html")
     out.write_text(html, encoding="utf-8")
     T = totals_py(DTOT, all_days)
-    print(f"✅ Dashboard → {out}")
-    print(f"   {len(all_days)} ngày · installs={T[0]} cost=${T[1]:.2f} rev=${T[2]:.2f} · {len(DCRE)} creative · FX={fx:,.0f}")
-    print("→ Publish: dùng tool Artifact với file dashboard.html (hoặc mở trực tiếp trong trình duyệt).")
+    extra = "" if is_saya else f" · {len(DCRE)} creative · FX={fx:,.0f}"
+    print(f"✅ {app_title} → {out}")
+    print(f"   {len(all_days)} ngày · installs={T[0]} cost=${T[1]:.2f} rev=${T[2]:.2f}{extra}")
+
+
+def main():
+    d = latest_export()
+    if not d:
+        sys.exit("❌ Chưa có export nào trong exports/")
+    build(d, "cardia")
+    if (d / "adjust_saya.csv").exists():
+        build(d, "saya")
+    else:
+        print("⏭ Không có adjust_saya.csv trong export này — bỏ qua trang Saya "
+              "(điền ADJUST_SAYA_QUERY vào .env rồi pull lại).")
+    print("→ Publish: bash publish_cloudflare.sh (deploy dashboard.html + saya.html).")
 
 
 def totals_py(DTOT, days):

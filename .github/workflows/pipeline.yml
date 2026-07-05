@@ -46,6 +46,7 @@ jobs:
           ADJUST_API_TOKEN:      ${{ secrets.ADJUST_API_TOKEN }}
           ADJUST_REPORT_QUERY:   ${{ secrets.ADJUST_REPORT_QUERY }}
           ADJUST_CREATIVE_QUERY: ${{ secrets.ADJUST_CREATIVE_QUERY }}
+          ADJUST_SAYA_QUERY:     ${{ secrets.ADJUST_SAYA_QUERY }}
           SINCE:                 ${{ secrets.SINCE }}
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -58,6 +59,7 @@ jobs:
             echo "ADJUST_API_TOKEN=${ADJUST_API_TOKEN}"
             echo "ADJUST_REPORT_QUERY=${ADJUST_REPORT_QUERY}"
             echo "ADJUST_CREATIVE_QUERY=${ADJUST_CREATIVE_QUERY}"
+            echo "ADJUST_SAYA_QUERY=${ADJUST_SAYA_QUERY}"
             echo "SINCE=${SINCE}"
             echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}"
             echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}"
@@ -67,7 +69,7 @@ jobs:
       - name: Pull data (Meta + Adjust)
         run: python3 pull_data.py
 
-      - name: Build dashboard.html
+      - name: Build dashboard (Cardia + Saya)
         run: python3 dashboard.py
 
       - name: Publish lên Cloudflare Pages

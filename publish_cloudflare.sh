@@ -37,9 +37,13 @@ if [ ! -f dashboard.html ]; then
   exit 0
 fi
 
-# Cloudflare Pages deploy theo THƯ MỤC; index.html = trang gốc
+# Cloudflare Pages deploy theo THƯ MỤC; index.html = trang gốc (Cardia).
+# dashboard.html upload THÊM 1 bản cùng tên để link "dashboard.html" từ trang Saya
+# chạy đúng cả trên cloud lẫn khi mở file local.
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 cp dashboard.html "$TMP/index.html"
+cp dashboard.html "$TMP/dashboard.html"
+[ -f saya.html ] && cp saya.html "$TMP/saya.html"
 
 if wrangler pages deploy "$TMP" --project-name "$PROJECT" --branch main --commit-dirty=true 2>&1; then
   echo "✅ Đã publish Cloudflare Pages (project=$PROJECT)"
