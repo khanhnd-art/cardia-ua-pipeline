@@ -52,6 +52,12 @@ ADJUST_REPORT_QUERY=/reports-service/report?app_token__in=APPTOKEN&dimensions=da
 Nối thêm vào sau `metrics=...`, ví dụ: `,roas,retention_rate_d1,retention_rate_d7`.
 Nếu Adjust báo lỗi tên metric → mở **Datascape → tạo report → bấm "..." / Share → "Copy API call"** để lấy **đúng tên slug** account anh đang dùng, rồi thay vào phần `metrics=`. (Không cần ghi `date_period`/`format` — script tự thêm.)
 
+**B2d. (tùy chọn) Trang SAYA — `ADJUST_SAYA_QUERY`**
+Dashboard sinh thêm trang **saya.html** (URL `/saya` trên Pages) nếu `.env` có `ADJUST_SAYA_QUERY` —
+query y hệt `ADJUST_REPORT_QUERY` nhưng app_token = app **M002 - Saya**. Toàn bộ số (installs, cost,
+ad_revenue, ROAS, D1/D7) lấy từ Adjust vì TikTok đẩy ad spend sang qua partner link → **không cần TikTok API**.
+⚠️ Saya dùng `utc_offset=%2B08:00` (ad account ZAS 01 UTC+8, KHÁC Cardia -07:00); dấu `+` phải encode `%2B`.
+
 **B2e. (tùy chọn) Thêm dimension / creative-level — soi retention theo từng creative**
 Query chính hiện đã gồm `sessions,daus,waus` để `analyze.py` tự in **SESSION CHECK** (xác định retention thật hay tracking đứt).
 Để soi **retention/ROAS theo từng creative** (việc mục C cần), thêm biến `ADJUST_CREATIVE_QUERY` vào `.env`:
