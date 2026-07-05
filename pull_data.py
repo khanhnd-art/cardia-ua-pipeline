@@ -56,6 +56,32 @@ def http_get(url, headers=None, retries=3):
     raise last
 
 
+def date_chunks(since, until, days=10):
+    """Chia range thành từng khúc ≤days ngày. Meta /insights trả 500 'unknown error'
+    khi range lớn (level=ad, ~23 ngày × 40 ads đã sập — 05/07); chunk nhỏ chạy ổn."""
+    s = datetime.date.fromisoformat(since)
+    u = datetime.date.fromisoformat(until)
+    out = []
+    while s <= u:
+        e = min(s + datetime.timedelta(days=days - 1), u)
+        out.append((s.isoformat(), e.isoformat()))
+        s = e + datetime.timedelta(days=1)
+    return out
+
+
+def meta_insights(acct, base_params, since, until):
+    """Kéo /insights theo từng chunk ngày + phân trang. base_params KHÔNG chứa time_range."""
+    rows = []
+    for cs, cu in date_chunks(since, until):
+        params = dict(base_params, time_range=json.dumps({"since": cs, "until": cu}))
+        url = f"{META_API}/{acct}/insights?" + urllib.parse.urlencode(params)
+        while url:
+            data = json.loads(http_get(url))
+            rows.extend(data.get("data", []))
+            url = data.get("paging", {}).get("next")
+    return rows
+
+
 def _action_value(actions, key):
     for a in actions or []:
         if a.get("action_type") == key:
@@ -94,20 +120,13 @@ def pull_meta(env, since, until, outdir):
         print("⚠️  Bỏ qua Meta — thiếu META_ACCESS_TOKEN / META_AD_ACCOUNT_ID")
         return
     for level in ("campaign", "ad"):
-        params = {
+        rows = meta_insights(acct, {
             "level": level,
             "fields": META_FIELDS,
-            "time_range": json.dumps({"since": since, "until": until}),
             "time_increment": "1",   # breakdown theo NGÀY (cho phép lọc thời gian ở dashboard)
             "limit": "500",
             "access_token": token,
-        }
-        url = f"{META_API}/{acct}/insights?" + urllib.parse.urlencode(params)
-        rows = []
-        while url:
-            data = json.loads(http_get(url))
-            rows.extend(data.get("data", []))
-            url = data.get("paging", {}).get("next")
+        }, since, until)
         out = outdir / f"meta_{level}.csv"
         write_meta_csv(rows, out)
         print(f"✅ Meta {level}: {len(rows)} dòng → {out.name}")
@@ -115,21 +134,14 @@ def pull_meta(env, since, until, outdir):
     # Spend theo COUNTRY (breakdown=country, level campaign) — Meta /insights KHÔNG có country
     # ở pull chính nên xin riêng. Lỗi ở đây KHÔNG làm hỏng pull chính.
     try:
-        gparams = {
+        grows = meta_insights(acct, {
             "level": "campaign",
             "fields": "campaign_name,spend,impressions,clicks,actions",
             "breakdowns": "country",
-            "time_range": json.dumps({"since": since, "until": until}),
             "time_increment": "1",
             "limit": "500",
             "access_token": token,
-        }
-        gurl = f"{META_API}/{acct}/insights?" + urllib.parse.urlencode(gparams)
-        grows = []
-        while gurl:
-            gdata = json.loads(http_get(gurl))
-            grows.extend(gdata.get("data", []))
-            gurl = gdata.get("paging", {}).get("next")
+        }, since, until)
         gout = outdir / "meta_campaign_geo.csv"
         with open(gout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
@@ -146,21 +158,14 @@ def pull_meta(env, since, until, outdir):
 
     # Spend theo COUNTRY ở level AD (creative) — cho breakdown country của bảng Creative.
     try:
-        aparams = {
+        arows = meta_insights(acct, {
             "level": "ad",
             "fields": "ad_name,spend,impressions,clicks,actions",
             "breakdowns": "country",
-            "time_range": json.dumps({"since": since, "until": until}),
             "time_increment": "1",
             "limit": "500",
             "access_token": token,
-        }
-        aurl = f"{META_API}/{acct}/insights?" + urllib.parse.urlencode(aparams)
-        arows = []
-        while aurl:
-            adata = json.loads(http_get(aurl))
-            arows.extend(adata.get("data", []))
-            aurl = adata.get("paging", {}).get("next")
+        }, since, until)
         aout = outdir / "meta_ad_geo.csv"
         with open(aout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
