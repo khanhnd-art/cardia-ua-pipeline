@@ -176,13 +176,29 @@ ISO2_NAME = {
 }
 
 
+def channel_of(network):
+    """Suy channel ads từ dimension network của Adjust (Facebook Installs / TikTok ... )."""
+    n = (network or "").lower()
+    if "tiktok" in n:
+        return "TikTok"
+    if "facebook" in n or "instagram" in n or "meta" in n:
+        return "Meta"
+    if "google" in n or "adwords" in n:
+        return "Google"
+    if "untrusted" in n or "unattributed" in n or not n.strip():
+        return ""  # không đủ tin cậy để gán channel
+    return network.strip()
+
+
 def load_adjust(d, fname="adjust_report.csv"):
     """DTOT[day]; DGEO[geo][day]; DACAM[campaign][day]; DCAMGEO[campaign][geo][day]
-    — đều =[inst,cost,rev,roas7*cost,ret1*inst]. fname: adjust_report.csv (Cardia) / adjust_saya.csv (Saya)."""
+    — đều =[inst,cost,rev,roas7*cost,ret1*inst]; CAM_CH[campaign]=channel (suy từ network).
+    fname: adjust_report.csv (Cardia) / adjust_saya.csv (Saya)."""
     rows = json.loads((d / fname).read_text())["rows"]
     DTOT = defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0])
     DGEO = defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0]))
     DACAM = defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0]))
+    CAM_CH = {}
     # slot[5]=spend Meta (VND), slot[6]=installs Meta — ghép vào sau từ load_meta_geo()
     DCAMGEO = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0, 0.0, 0])))
     for r in rows:
@@ -200,11 +216,14 @@ def load_adjust(d, fname="adjust_report.csv"):
             cty = "Unknown"
         # tên Adjust có hậu tố " (id)" → bỏ để khớp tên campaign Meta
         camp = re.sub(r"\s*\(\d+\)\s*$", "", r.get("campaign", "") or "")
+        ch = channel_of(r.get("network", ""))
+        if ch and not CAM_CH.get(camp):
+            CAM_CH[camp] = ch
         for a in (DTOT[day], DGEO[geo][day], DACAM[camp][day]):
             a[0] += ins; a[1] += cost; a[2] += rev; a[3] += roas7 * cost; a[4] += ret1 * ins
         a = DCAMGEO[camp][cty][day]
         a[0] += ins; a[1] += cost; a[2] += rev; a[3] += roas7 * cost; a[4] += ret1 * ins
-    return DTOT, DGEO, DACAM, DCAMGEO
+    return DTOT, DGEO, DACAM, DCAMGEO, CAM_CH
 
 
 def load_meta(d, fname="meta_ad.csv", cre_re=CRE_RE):
@@ -362,7 +381,7 @@ def build(d, app):
     except OSError:
         pulled_ts = datetime.datetime.now().timestamp()
     built = datetime.datetime.fromtimestamp(pulled_ts).strftime("%d/%m/%Y %H:%M")
-    DTOT, DGEO, DACAM_ADJ, DCAMGEO = load_adjust(d, src)
+    DTOT, DGEO, DACAM_ADJ, DCAMGEO, CAM_CH = load_adjust(d, src)
     if has_meta:
         DCRE, QR = load_meta(d, f"{pfx}_ad.csv", cre_re)
         # adjust_creative.csv là query app Cardia → Saya khởi tạo rỗng (nhận merge Meta bên dưới)
@@ -394,6 +413,9 @@ def build(d, app):
         DCRE, QR = {}, {}
         DCREGEO = {}
         DCAM, CAM_OBJ, CAM_STATUS = {}, {}, {}
+    # campaign chỉ có trong Adjust (vd TikTok — không có ad-platform API) vẫn cần objective suy từ tên
+    for _c in DACAM_ADJ:
+        CAM_OBJ.setdefault(_c, objective_of(_c))
 
     all_days = sorted(DTOT.keys())
     # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
@@ -440,6 +462,7 @@ def build(d, app):
     j_cstat = json.dumps(CAM_STATUS, ensure_ascii=False)
     j_dacam = json.dumps({c: {dy: [a[0]] + [jnum(x) for x in a[1:]] for dy, a in days.items()}
                           for c, days in DACAM_ADJ.items()}, ensure_ascii=False)
+    j_camch = json.dumps(CAM_CH, ensure_ascii=False)
     # creative×country: [adjInst, costAdj, rev, ret1*adjInst, spendMetaVND, instMeta]
     j_dcregeo = json.dumps({cid: {g: {dy: [a[0], jnum(a[1]), jnum(a[2]), jnum(a[3]), jnum(a[4]), a[5]] for dy, a in dd.items()}
                                   for g, dd in geos.items()} for cid, geos in DCREGEO.items()}, ensure_ascii=False)
@@ -453,7 +476,7 @@ def build(d, app):
     j_cpit = json.dumps([0.5, 1.5] if is_saya else [0.12, 0.3])
 
     APP = """
-    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__, CPI_T = __CPIT__;
+    const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, CAM_CH = __CAMCH__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__, CPI_T = __CPIT__;
     const GREEN='#0f9d6b', RED='#d6454f';
     function DT(d){ return DTOT[d] || [0,0,0,0,0]; }
 
@@ -765,23 +788,6 @@ def build(d, app):
         p.addEventListener('mouseleave',hideGeoTip);
       });
     }
-    // bảng campaign THUẦN Adjust (trang Saya — không có nguồn ad-platform API).
-    // DACAM_ADJ[camp][day] cùng cấu trúc DGEO → tái dùng geoCells (cùng cột với bảng GEO).
-    function renderCamAdj(days){
-      const el=document.getElementById('camAdjBody'); if(!el) return;
-      const all=Object.keys(DACAM_ADJ).map(function(g){
-        let inst=0,cost=0,rev=0,r1=0,r7c=0,matI=0,r1m=0;
-        days.forEach(function(d){ const a=DACAM_ADJ[g][d]; if(a){inst+=a[0];cost+=a[1];rev+=a[2];r7c+=a[3];r1+=a[4]; if(d<=D1CUT){matI+=a[0];r1m+=a[4];}} });
-        return {g:g,inst:inst,cost:cost,rev:rev,r1:r1,r7c:r7c,matI:matI,r1m:r1m};
-      }).filter(function(x){return x.inst>0||x.cost>0;}).sort(function(a,b){return b.cost-a.cost;});
-      if(!all.length){
-        el.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này — campaign chưa chạy</td></tr>';
-        return;
-      }
-      const total=all.reduce(function(s,x){s.inst+=x.inst;s.cost+=x.cost;s.rev+=x.rev;s.r1+=x.r1;s.r7c+=x.r7c;s.matI+=x.matI;s.r1m+=x.r1m;return s;},{inst:0,cost:0,rev:0,r1:0,r7c:0,matI:0,r1m:0});
-      el.innerHTML=all.map(function(x,i){ return '<tr'+(i%2?' class="zeb"':'')+'><td>'+x.g+'</td>'+geoCells(x)+'</tr>'; }).join('')
-        +'<tr class="trow-tot"><td>Total</td>'+geoCells(total)+'</tr>';
-    }
     function renderCre(days){
       if(!document.getElementById('creBody')) return;
       const rows=Object.keys(DCRE).map(function(c){
@@ -865,16 +871,25 @@ def build(d, app):
       else if(s.indexOf('ISSUE')>=0||s.indexOf('DISAPPROVED')>=0||s.indexOf('REJECT')>=0){ cls='bad'; lbl='Issues'; }
       return '<span class="stat '+cls+'" title="'+s+'"><span class="dot"></span>'+lbl+'</span>';
     }
+    // Bảng Campaign HỢP NHẤT mọi channel: dòng từ ad-platform API (Meta — có Status/CTR/CVR)
+    // + dòng chỉ có trong Adjust (vd TikTok — cost do platform đẩy sang, CTR/CVR không có → "—").
     function renderCam(days){
       if(!document.getElementById('camBody')) return;
       const rows=Object.keys(DCAM).map(function(c){
         let sp=0,impr=0,lc=0,inst=0,v3=0;
         days.forEach(function(d){ const a=DCAM[c][d]; if(a){sp+=a[0];impr+=a[1];lc+=a[2];inst+=a[3];v3+=a[4];} });
-        return {c:c,sp:sp,impr:impr,lc:lc,inst:inst,v3:v3};
-      }).filter(function(x){return x.impr>0||x.sp>0;})
-        .filter(function(x){ return camFilter==='all' || (CAM_STATUS[x.c]||'').toUpperCase()==='ACTIVE'; })
+        return {c:c,ch:'Meta',sp:sp,impr:impr,lc:lc,inst:inst,v3:v3,adj:false};
+      }).filter(function(x){return x.impr>0||x.sp>0;});
+      Object.keys(DACAM_ADJ).forEach(function(c){
+        if(DCAM[c]) return;                       // đã có từ Meta API → không thêm lần 2
+        let inst=0,cost=0;
+        days.forEach(function(d){ const a=DACAM_ADJ[c][d]; if(a){inst+=a[0];cost+=a[1];} });
+        if(inst>0||cost>0.005) rows.push({c:c,ch:CAM_CH[c]||'—',sp:cost*FX,impr:0,lc:0,inst:inst,v3:0,adj:true});
+      });
+      const vis=rows
+        .filter(function(x){ return camFilter==='all' || x.adj || (CAM_STATUS[x.c]||'').toUpperCase()==='ACTIVE'; })
         .sort(function(a,b){return b.sp-a.sp;});
-      document.getElementById('camBody').innerHTML = rows.length? rows.map(function(x,i){
+      document.getElementById('camBody').innerHTML = vis.length? vis.map(function(x,i){
         const cost=x.sp/FX,cpi=x.inst?cost/x.inst:0,ctr=x.impr?x.lc/x.impr*100:0,cvr=x.lc?x.inst/x.lc*100:0;
         const cc=cpi<CPI_T[0]?'good':cpi<CPI_T[1]?'warn':'bad',tc=ctr>6?'good':ctr>3?'warn':'bad';
         const obj=CAM_OBJ[x.c]||'—';
@@ -882,16 +897,19 @@ def build(d, app):
         if(ac){ days.forEach(function(d){ const a=ac[d]; if(a){ rev+=a[2]; } }); }
         const roas=cost?rev/cost:0;
         const exp=DCAMGEO[x.c]?' expandable':'', car=DCAMGEO[x.c]?'<span class="caret">▸</span> ':'';
-        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td>'+car+x.c+'</td><td class="angcell">'+statHtml(x.c)+'</td><td class="angcell"><span class="ang"><b>'+obj+'</b></span></td><td>$'+cost.toFixed(2)+'</td><td>'+x.inst.toLocaleString()+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td><td class="'+tc+'">'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>$'+rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
+        const st=x.adj?'<span class="stat on" title="Đang phát sinh chi phí trong Adjust (channel không có API status)"><span class="dot"></span>Spending</span>':statHtml(x.c);
+        const ctrTd=x.adj?'<td class="mut" title="Channel này chưa có ad-platform API — không có CTR">—</td><td class="mut">—</td>'
+                         :'<td class="'+tc+'">'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td>';
+        return '<tr class="crow'+exp+(i%2?' zeb':'')+'" data-cid="'+x.c+'"><td>'+car+x.c+'</td><td class="angcell"><span class="ang"><b>'+x.ch+'</b></span></td><td class="angcell">'+st+'</td><td class="angcell"><span class="ang"><b>'+obj+'</b></span></td><td>$'+cost.toFixed(2)+'</td><td>'+x.inst.toLocaleString()+'</td><td class="'+cc+'">$'+cpi.toFixed(3)+'</td>'+ctrTd+'<td>$'+rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
       }).join('')+(function(){
-        var T=rows.reduce(function(s,x){
+        var T=vis.reduce(function(s,x){
           s.sp+=x.sp;s.impr+=x.impr;s.lc+=x.lc;s.inst+=x.inst;
           var ac=DACAM_ADJ[x.c]; if(ac){ days.forEach(function(d){ var a=ac[d]; if(a){ s.rev+=a[2]; } }); }
           return s;
         },{sp:0,impr:0,lc:0,inst:0,rev:0});
         var cost=T.sp/FX,cpi=T.inst?cost/T.inst:0,ctr=T.impr?T.lc/T.impr*100:0,cvr=T.lc?T.inst/T.lc*100:0,roas=cost?T.rev/cost:0;
-        return '<tr class="trow-tot"><td>Total</td><td></td><td></td><td>$'+cost.toFixed(2)+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>$'+T.rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
-      })() : '<tr><td colspan="10" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
+        return '<tr class="trow-tot"><td>Total</td><td></td><td></td><td></td><td>$'+cost.toFixed(2)+'</td><td>'+T.inst.toLocaleString()+'</td><td>$'+cpi.toFixed(3)+'</td><td>'+ctr.toFixed(2)+'%</td><td>'+cvr.toFixed(1)+'%</td><td>$'+T.rev.toFixed(2)+'</td><td>'+roas.toFixed(2)+'x</td></tr>';
+      })() : '<tr><td colspan="11" style="text-align:center;color:var(--mut)">không có data trong khung thời gian này</td></tr>';
     }
     const QLAB={ABOVE_AVERAGE:'Above avg', AVERAGE:'Average',
       BELOW_AVERAGE_35:'Below avg (35%)', BELOW_AVERAGE_20:'Below avg (20%)', BELOW_AVERAGE_10:'Below avg (10%)'};
@@ -909,7 +927,7 @@ def build(d, app):
     function renderAll(){
       const days=daysFor(curWin), prev=prevFor(curWin);
       document.getElementById('rangelbl').textContent = days.length? (days[0]+' → '+days[days.length-1]+' ('+days.length+' ngày)') : '—';
-      renderKPIs(days,prev); renderChart(curMetric,days); renderCam(days); renderCamAdj(days); renderGeo(days); renderCre(days);
+      renderKPIs(days,prev); renderChart(curMetric,days); renderCam(days); renderGeo(days); renderCre(days);
     }
     document.querySelectorAll('.win-btn').forEach(function(b){ b.addEventListener('click',function(){
       document.querySelectorAll('.win-btn').forEach(function(x){x.classList.remove('active');});
@@ -947,7 +965,7 @@ def build(d, app):
       const nx=tr.nextElementSibling;
       if(nx&&nx.classList.contains('subrow')){ nx.remove(); tr.classList.remove('open'); return; }
       const sub=document.createElement('tr'); sub.className='subrow';
-      sub.innerHTML='<td colspan="10">'+camGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
+      sub.innerHTML='<td colspan="11">'+camGeoSub(tr.dataset.cid,daysFor(curWin))+'</td>';
       tr.after(sub); tr.classList.add('open');
     });
 
@@ -970,7 +988,8 @@ def build(d, app):
     renderAll();
     """.replace("__DAYS__", j_days).replace("__DTOT__", j_dtot).replace("__DGEO__", j_dgeo) \
        .replace("__DCRE__", j_dcre).replace("__DCAM__", j_dcam).replace("__COBJ__", j_cobj) \
-       .replace("__CSTAT__", j_cstat).replace("__DACADJ__", j_dacam).replace("__DCREGEO__", j_dcregeo) \
+       .replace("__CSTAT__", j_cstat).replace("__DACADJ__", j_dacam).replace("__CAMCH__", j_camch) \
+       .replace("__DCREGEO__", j_dcregeo) \
        .replace("__DCAMGEO__", j_dcamgeo) \
        .replace("__ANGN__", j_angn).replace("__QR__", j_qr).replace("__FX__", f"{fx:.2f}") \
        .replace("__D1CUT__", json.dumps(d1cut)).replace("__CPIT__", j_cpit) \
@@ -979,19 +998,20 @@ def build(d, app):
     # ----- phần HTML khác nhau giữa 2 app -----
     ICON_CARDIA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>'
     ICON_SAYA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>'
-    META_CAMPAIGN_PANEL = """
+    CAMPAIGN_PANEL = """
       <div class="panel">
         <div class="panel-head">
-          <h2>Campaign (Meta)</h2>
+          <h2>Campaign</h2>
           <div class="seg" role="tablist" aria-label="Lọc trạng thái campaign">
             <button class="cam-btn active" data-f="all">All</button>
             <button class="cam-btn" data-f="active">Active</button>
           </div>
         </div>
         <div class="scroll"><table>
-          <thead><tr><th>Campaign</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
+          <thead><tr><th>Campaign</th><th class="angcol">Channel</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
           <tbody id="camBody"></tbody>
         </table></div>
+        <p class="note">Gộp mọi channel: dòng Meta = số từ Meta API (Spend/Inst/CTR/CVR) + Revenue từ Adjust; channel chưa có API (vd TikTok) = số Adjust (cost do platform đẩy sang qua partner link), CTR/CVR không có → "—".</p>
       </div>"""
     CREATIVE_PANEL = """
       <div class="panel">
@@ -1001,15 +1021,6 @@ def build(d, app):
           <tbody id="creBody"></tbody>
         </table></div>
       </div>"""
-    ADJUST_CAMPAIGN_PANEL = """
-      <div class="panel">
-        <h2>Campaign (Adjust)</h2>
-        <div class="scroll"><table>
-          <thead><tr><th>Campaign</th><th>Inst</th><th>Cost</th><th>Rev</th><th>CPI</th><th>LTV</th><th>ROAS</th><th>D1</th><th>ROAS D7</th></tr></thead>
-          <tbody id="camAdjBody"></tbody>
-        </table></div>
-        <p class="note">Số thuần Adjust — cost do ad platform đẩy sang (TikTok qua partner link đã kèm ad spend; Meta cần bật cost data sharing trong partner setup mới đủ). Đối chiếu với bảng Campaign (Meta) phía trên: lệch nhiều = cost sharing chưa bật.</p>
-      </div>"""
     if is_saya:
         # Cloudflare Pages: trang Cardia được upload cả index.html LẪN dashboard.html
         # (publish_cloudflare.sh) → link "dashboard.html" chạy đúng cả local lẫn cloud.
@@ -1017,14 +1028,14 @@ def build(d, app):
                     f'<button class="nav active" aria-label="Saya">{ICON_SAYA} Saya</button>')
         side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
         page_desc = f"ROAS / CPI / retention theo geo & creative — Saya (Meta + TikTok, Adjust), snapshot {date}"
-        campaign_panel = (META_CAMPAIGN_PANEL if has_meta else "") + ADJUST_CAMPAIGN_PANEL
+        campaign_panel = CAMPAIGN_PANEL
         creative_panel = CREATIVE_PANEL if has_meta else ""
     else:
         nav_apps = (f'<button class="nav active" aria-label="Cardia">{ICON_CARDIA} Cardia</button>'
                     f'<a class="nav" href="saya.html" aria-label="Saya">{ICON_SAYA} Saya</a>')
         side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
         page_desc = f"ROAS / CPI / retention theo geo & creative — Cardia Meta Ads, snapshot {date}"
-        campaign_panel = META_CAMPAIGN_PANEL
+        campaign_panel = CAMPAIGN_PANEL
         creative_panel = CREATIVE_PANEL
 
     html = f"""<meta charset="utf-8">
