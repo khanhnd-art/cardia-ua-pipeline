@@ -1011,7 +1011,6 @@ def build(d, app):
           <thead><tr><th>Campaign</th><th class="angcol">Channel</th><th class="angcol">Status</th><th class="angcol">Objective</th><th>Spend</th><th>Inst</th><th>CPI</th><th>CTR</th><th title="Install / Click">CVR</th><th>Revenue</th><th>ROAS</th></tr></thead>
           <tbody id="camBody"></tbody>
         </table></div>
-        <p class="note">Gộp mọi channel: dòng Meta = số từ Meta API (Spend/Inst/CTR/CVR) + Revenue từ Adjust; channel chưa có API (vd TikTok) = số Adjust (cost do platform đẩy sang qua partner link), CTR/CVR không có → "—".</p>
       </div>"""
     CREATIVE_PANEL = """
       <div class="panel">
