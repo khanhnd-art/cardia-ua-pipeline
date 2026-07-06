@@ -13,6 +13,8 @@ from collections import defaultdict
 HERE = pathlib.Path(__file__).resolve().parent
 # hook token: H7, CL06, ... (chữ hoa + số); geo hiện có EN/US
 CRE_RE = re.compile(r"(CAR_A\d+_[A-Z]+_[A-Z]*\d+_(?:EN|US))")
+# Saya: SAYA_<angle S#>_<format>_<hook#>_<geo>_<TIKTOK|META>
+CRE_RE_SAYA = re.compile(r"(SAYA_S\d+_[A-Z]+_[A-Z]*\d+_[A-Z]{2}_(?:TIKTOK|META))")
 GEO = {"India": "India", "United States": "US", "Pakistan": "Pakistan", "Brazil": "Brazil"}
 LATAM = {"Venezuela, Bolivarian Republic Of", "Peru", "Colombia", "Chile", "Argentina",
          "Bolivia, Plurinational State Of", "Paraguay", "Uruguay", "Ecuador", "Mexico",
@@ -205,13 +207,13 @@ def load_adjust(d, fname="adjust_report.csv"):
     return DTOT, DGEO, DACAM, DCAMGEO
 
 
-def load_meta(d):
+def load_meta(d, fname="meta_ad.csv", cre_re=CRE_RE):
     """DCRE[creative][day]=[spendVND,impr,linkclicks,inst,v3]; QR[creative]=ranking."""
     DCRE = defaultdict(lambda: defaultdict(lambda: [0.0, 0, 0.0, 0, 0]))
     QR = {}
-    with open(d / "meta_ad.csv") as fp:
+    with open(d / fname) as fp:
         for r in csv.DictReader(fp):
-            m = CRE_RE.search(r.get("ad_name", ""))
+            m = cre_re.search(r.get("ad_name", ""))
             # không match mã CAR → hiện NGUYÊN tên ad đang chạy ở Meta (không gom "(no-CAR-id)")
             cid = m.group(1) if m else (r.get("ad_name", "").strip() or "(unnamed)")
             day = r.get("date", "") or "?"
@@ -227,6 +229,8 @@ def load_meta(d):
 
 ANGLE_NAME = {"A1": "Convenience", "A2": "Family care", "A3": "Reminder", "A4": "Know your numbers",
               "A5": "Awareness", "A6": "Urgency", "A7": "Gestational"}
+ANGLE_NAME_SAYA = {"S1": "Speaking anxiety", "S2": "Career", "S3": "5-min habit", "S4": "AI demo",
+                   "S5": "Cheaper than tutor", "S6": "Travel", "S7": "Robot skit"}
 # bid/optimization strategy suy từ campaign name (ưu tiên theo thứ tự)
 OBJ_RULES = [("roas", "ROAS"), ("cpi", "CPI cap"), ("value", "Value"),
              ("broad", "Volume"), ("volume", "Volume"), ("adv", "Advantage+"),
@@ -241,11 +245,11 @@ def objective_of(name):
     return "Install"
 
 
-def load_meta_campaign(d):
+def load_meta_campaign(d, fname="meta_campaign.csv", status_fname="meta_campaign_status.csv"):
     """DCAM[campaign][day]=[spendVND,impr,linkclicks,inst,v3]; CAM_OBJ; CAM_STATUS[campaign]=effective_status."""
     DCAM = defaultdict(lambda: defaultdict(lambda: [0.0, 0, 0.0, 0, 0]))
     CAM_OBJ, CAM_STATUS = {}, {}
-    p = d / "meta_campaign.csv"
+    p = d / fname
     if not p.exists():
         return DCAM, CAM_OBJ, CAM_STATUS
     with open(p) as fp:
@@ -258,7 +262,7 @@ def load_meta_campaign(d):
             a[2] += f(r["inline_link_click_ctr"]) / 100 * impr
             a[3] += int(f(r["installs"])); a[4] += int(f(r["video_3s"]))
             CAM_OBJ[cam] = objective_of(cam)
-    sp = d / "meta_campaign_status.csv"
+    sp = d / status_fname
     if sp.exists():
         with open(sp) as fp:
             for r in csv.DictReader(fp):
@@ -268,11 +272,11 @@ def load_meta_campaign(d):
     return DCAM, CAM_OBJ, CAM_STATUS
 
 
-def load_meta_geo(d):
+def load_meta_geo(d, fname="meta_campaign_geo.csv"):
     """META_CG[campaign][country][day] = [spend Meta (VND), installs Meta].
     Meta breakdown=country trả mã ISO2 → đổi sang tên nước (khớp tên Adjust) để ghép vào DCAMGEO theo country."""
     META_CG = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0])))
-    p = d / "meta_campaign_geo.csv"
+    p = d / fname
     if not p.exists():
         return META_CG
     with open(p) as fp:
@@ -316,16 +320,16 @@ def load_adjust_creative(d):
     return DCG
 
 
-def load_meta_creative_geo(d):
+def load_meta_creative_geo(d, fname="meta_ad_geo.csv", cre_re=CRE_RE):
     """META_CRG[carid][country][day] = [spend Meta (VND), installs Meta] từ meta_ad_geo.csv (level ad × country)."""
     META_CRG = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0])))
-    p = d / "meta_ad_geo.csv"
+    p = d / fname
     if not p.exists():
         return META_CRG
     with open(p) as fp:
         for r in csv.DictReader(fp):
             raw = (r.get("ad_name", "") or "").strip()
-            m = CRE_RE.search(raw)
+            m = cre_re.search(raw)
             cid = m.group(1) if m else (raw or "(unnamed)")
             iso = (r.get("country", "") or "").strip().upper()
             name = ISO2_NAME.get(iso, iso)
@@ -346,6 +350,10 @@ def build(d, app):
     is_saya = (app == "saya")
     app_title = "Saya" if is_saya else "Cardia"
     src = "adjust_saya.csv" if is_saya else "adjust_report.csv"
+    pfx = "meta_saya" if is_saya else "meta"          # prefix file Meta theo app
+    cre_re = CRE_RE_SAYA if is_saya else CRE_RE
+    ang_name = ANGLE_NAME_SAYA if is_saya else ANGLE_NAME
+    has_meta = (d / f"{pfx}_ad.csv").exists()          # Saya có Meta từ 05/07 (act_3280909035510133)
     date = d.name
     # "Last updated" = giờ PULL THẬT (mtime file Adjust ghi bởi pull_data), KHÔNG phải giờ build UI.
     # → rebuild dashboard không pull lại sẽ không làm đổi số này.
@@ -355,19 +363,16 @@ def build(d, app):
         pulled_ts = datetime.datetime.now().timestamp()
     built = datetime.datetime.fromtimestamp(pulled_ts).strftime("%d/%m/%Y %H:%M")
     DTOT, DGEO, DACAM_ADJ, DCAMGEO = load_adjust(d, src)
-    if is_saya:
-        # Saya v1: không có nguồn Meta/TikTok API — các cấu trúc Meta để rỗng, JS tự bỏ qua.
-        DCRE, QR = {}, {}
-        DCREGEO = {}
-        DCAM, CAM_OBJ, CAM_STATUS = {}, {}, {}
-    else:
-        DCRE, QR = load_meta(d)
-        DCREGEO = load_adjust_creative(d)
-        DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d)
+    if has_meta:
+        DCRE, QR = load_meta(d, f"{pfx}_ad.csv", cre_re)
+        # adjust_creative.csv là query app Cardia → Saya khởi tạo rỗng (nhận merge Meta bên dưới)
+        DCREGEO = load_adjust_creative(d) if not is_saya else \
+            defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0, 0])))
+        DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d, f"{pfx}_campaign.csv", f"{pfx}_campaign_status.csv")
         # ghép spend+installs Meta theo country vào DCAMGEO/DCREGEO (slot spend VND + inst Meta).
         # CANON: chuẩn hoá tên nước về đúng spelling Adjust (lowercase → tên Adjust) để merge khớp.
-        META_CG = load_meta_geo(d)
-        META_CRG = load_meta_creative_geo(d)
+        META_CG = load_meta_geo(d, f"{pfx}_campaign_geo.csv")
+        META_CRG = load_meta_creative_geo(d, f"{pfx}_ad_geo.csv", cre_re)
         CANON = {}
         for src_map in (DCAMGEO, DCREGEO):
             for geos in src_map.values():
@@ -385,16 +390,18 @@ def build(d, app):
                 for day, a in dd.items():
                     DCREGEO[cid][key][day][4] += a[0]
                     DCREGEO[cid][key][day][5] += a[1]
+    else:
+        DCRE, QR = {}, {}
+        DCREGEO = {}
+        DCAM, CAM_OBJ, CAM_STATUS = {}, {}, {}
 
     all_days = sorted(DTOT.keys())
-    if is_saya:
-        fx = 25000.0  # không dùng ở trang Saya (không có spend VND) — chỉ để JS không chia 0
-    else:
-        # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
-        # Adjust-only mới nhất làm "hôm nay" thì bảng Campaign/Creative (nguồn Meta) rỗng + lệch trục
-        # Today/Yesterday. → cắt trục ngày tới ngày Meta mới nhất; ngày sau tự hiện khi Meta chốt sổ (re-fetch).
+    # Adjust thường mở bucket ngày mới sớm hơn Meta (Meta chốt sổ ~14:00 VN, GMT-7). Nếu để ngày
+    # Adjust-only mới nhất làm "hôm nay" thì bảng Campaign/Creative (nguồn Meta) rỗng + lệch trục
+    # Today/Yesterday. → cắt trục ngày tới ngày Meta mới nhất; ngày sau tự hiện khi Meta chốt sổ (re-fetch).
+    if has_meta:
         meta_days = set()
-        for _fn in ("meta_campaign.csv", "meta_ad.csv"):
+        for _fn in (f"{pfx}_campaign.csv", f"{pfx}_ad.csv"):
             _p = d / _fn
             if _p.exists():
                 for _r in csv.DictReader(open(_p)):
@@ -404,9 +411,16 @@ def build(d, app):
         if meta_days:
             _mmax = max(meta_days)
             all_days = [x for x in all_days if x <= _mmax]
-        meta_vnd = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv")))
-        total_cost = sum(DTOT[k][1] for k in DTOT)
-        fx = meta_vnd / total_cost if total_cost else 25000
+    # FX luôn suy từ CARDIA (Meta VND ÷ Adjust cost USD — cost sharing Cardia đã chuẩn).
+    # Saya chưa bật cost sharing Meta→Adjust nên không tự suy được; cùng đơn vị VND nên dùng chung.
+    try:
+        _mv = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv")))
+        _rows = json.loads((d / "adjust_report.csv").read_text())["rows"]
+        _ac = sum(f(r.get("cost")) for r in _rows
+                  if (r.get("network", "") or "").strip().lower() != "organic")
+        fx = _mv / _ac if _ac else 26000
+    except Exception:
+        fx = 26000
     # Mốc D1 chín: neo theo NGÀY DATA MỚI NHẤT trong snapshot (không phải hôm nay) — vì retention
     # 1-2 ngày cuối bị đếm thiếu do lúc pull ngày chưa trọn. Install-day X đo được D1 khi X+1 đã
     # trọn ngày & đã settle → X <= (ngày mới nhất - 2). Cohort mới hơn → "chưa chín", D1 hiển thị "–".
@@ -432,10 +446,11 @@ def build(d, app):
     # campaign×country: [adjInst, costAdj, rev, ret1*adjInst, spendMetaVND, instMeta]
     j_dcamgeo = json.dumps({c: {g: {dy: [a[0], jnum(a[1]), jnum(a[2]), jnum(a[4]), jnum(a[5]), a[6]] for dy, a in dd.items()}
                                 for g, dd in geos.items()} for c, geos in DCAMGEO.items()}, ensure_ascii=False)
-    j_angn = json.dumps(ANGLE_NAME)
+    j_angn = json.dumps(ang_name)
+    j_angre = json.dumps(r"^SAYA_(S\d+)" if is_saya else r"^CAR_(A\d+)")
     j_qr = json.dumps(QR)
-    # Ngưỡng màu CPI theo app: Cardia (India/EN, CPI thấp) vs Saya (US Tier-1, CPI cao hơn hẳn)
-    j_cpit = json.dumps([1.5, 3.0] if is_saya else [0.12, 0.3])
+    # Ngưỡng màu CPI theo app: Cardia (India/EN, CPI thấp) vs Saya (global mix, CPI cao hơn)
+    j_cpit = json.dumps([0.5, 1.5] if is_saya else [0.12, 0.3])
 
     APP = """
     const ALLDAYS = __DAYS__, DTOT = __DTOT__, DGEO = __DGEO__, DCRE = __DCRE__, DCAM = __DCAM__, CAM_OBJ = __COBJ__, CAM_STATUS = __CSTAT__, DACAM_ADJ = __DACADJ__, DCREGEO = __DCREGEO__, DCAMGEO = __DCAMGEO__, ANGN = __ANGN__, QR = __QR__, FX = __FX__, D1CUT = __D1CUT__, CPI_T = __CPIT__;
@@ -881,8 +896,9 @@ def build(d, app):
     const QLAB={ABOVE_AVERAGE:'Above avg', AVERAGE:'Average',
       BELOW_AVERAGE_35:'Below avg (35%)', BELOW_AVERAGE_20:'Below avg (20%)', BELOW_AVERAGE_10:'Below avg (10%)'};
     function qLabel(q){ return q&&QLAB[q]?QLAB[q]:'—'; }
+    const ANG_RE=new RegExp(__ANGRE__);
     function angOf(cid){
-      const m=/^CAR_(A\d+)/.exec(cid); if(!m) return '<span class="mut">—</span>';
+      const m=ANG_RE.exec(cid); if(!m) return '<span class="mut">—</span>';
       const code=m[1], nm=ANGN[code]||'';
       return '<span class="ang"><b>'+code+'</b> '+nm+'</span>';
     }
@@ -957,34 +973,13 @@ def build(d, app):
        .replace("__CSTAT__", j_cstat).replace("__DACADJ__", j_dacam).replace("__DCREGEO__", j_dcregeo) \
        .replace("__DCAMGEO__", j_dcamgeo) \
        .replace("__ANGN__", j_angn).replace("__QR__", j_qr).replace("__FX__", f"{fx:.2f}") \
-       .replace("__D1CUT__", json.dumps(d1cut)).replace("__CPIT__", j_cpit)
+       .replace("__D1CUT__", json.dumps(d1cut)).replace("__CPIT__", j_cpit) \
+       .replace("__ANGRE__", j_angre)
 
     # ----- phần HTML khác nhau giữa 2 app -----
     ICON_CARDIA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>'
     ICON_SAYA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>'
-    if is_saya:
-        # Cloudflare Pages: trang Cardia được upload cả index.html LẪN dashboard.html
-        # (publish_cloudflare.sh) → link "dashboard.html" chạy đúng cả local lẫn cloud.
-        nav_apps = (f'<a class="nav" href="dashboard.html" aria-label="Cardia">{ICON_CARDIA} Cardia</a>'
-                    f'<button class="nav active" aria-label="Saya">{ICON_SAYA} Saya</button>')
-        side_foot = f'Snapshot <b>{date}</b><br>TikTok Ads · số liệu Adjust (UTC+8)'
-        page_desc = f"ROAS / CPI / retention theo geo & campaign — Saya TikTok Ads (Adjust), snapshot {date}"
-        campaign_panel = """
-      <div class="panel">
-        <h2>Campaign (TikTok · Adjust)</h2>
-        <div class="scroll"><table>
-          <thead><tr><th>Campaign</th><th>Inst</th><th>Cost</th><th>Rev</th><th>CPI</th><th>LTV</th><th>ROAS</th><th>D1</th><th>ROAS D7</th></tr></thead>
-          <tbody id="camAdjBody"></tbody>
-        </table></div>
-        <p class="note">Toàn bộ số từ Adjust (spend TikTok đẩy sang qua partner link; ngày bucket UTC+8 khớp ad account ZAS 01 &amp; TikTok Ads Manager). CTR / hook-rate theo creative cần TikTok Ads API — sẽ có ở platform mới.</p>
-      </div>"""
-        creative_panel = ""
-    else:
-        nav_apps = (f'<button class="nav active" aria-label="Cardia">{ICON_CARDIA} Cardia</button>'
-                    f'<a class="nav" href="saya.html" aria-label="Saya">{ICON_SAYA} Saya</a>')
-        side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
-        page_desc = f"ROAS / CPI / retention theo geo & creative — Cardia Meta Ads, snapshot {date}"
-        campaign_panel = """
+    META_CAMPAIGN_PANEL = """
       <div class="panel">
         <div class="panel-head">
           <h2>Campaign (Meta)</h2>
@@ -998,7 +993,7 @@ def build(d, app):
           <tbody id="camBody"></tbody>
         </table></div>
       </div>"""
-        creative_panel = """
+    CREATIVE_PANEL = """
       <div class="panel">
         <h2>Creative (Meta)</h2>
         <div class="scroll"><table>
@@ -1006,6 +1001,31 @@ def build(d, app):
           <tbody id="creBody"></tbody>
         </table></div>
       </div>"""
+    ADJUST_CAMPAIGN_PANEL = """
+      <div class="panel">
+        <h2>Campaign (Adjust)</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Campaign</th><th>Inst</th><th>Cost</th><th>Rev</th><th>CPI</th><th>LTV</th><th>ROAS</th><th>D1</th><th>ROAS D7</th></tr></thead>
+          <tbody id="camAdjBody"></tbody>
+        </table></div>
+        <p class="note">Số thuần Adjust — cost do ad platform đẩy sang (TikTok qua partner link đã kèm ad spend; Meta cần bật cost data sharing trong partner setup mới đủ). Đối chiếu với bảng Campaign (Meta) phía trên: lệch nhiều = cost sharing chưa bật.</p>
+      </div>"""
+    if is_saya:
+        # Cloudflare Pages: trang Cardia được upload cả index.html LẪN dashboard.html
+        # (publish_cloudflare.sh) → link "dashboard.html" chạy đúng cả local lẫn cloud.
+        nav_apps = (f'<a class="nav" href="dashboard.html" aria-label="Cardia">{ICON_CARDIA} Cardia</a>'
+                    f'<button class="nav active" aria-label="Saya">{ICON_SAYA} Saya</button>')
+        side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
+        page_desc = f"ROAS / CPI / retention theo geo & creative — Saya (Meta + TikTok, Adjust), snapshot {date}"
+        campaign_panel = (META_CAMPAIGN_PANEL if has_meta else "") + ADJUST_CAMPAIGN_PANEL
+        creative_panel = CREATIVE_PANEL if has_meta else ""
+    else:
+        nav_apps = (f'<button class="nav active" aria-label="Cardia">{ICON_CARDIA} Cardia</button>'
+                    f'<a class="nav" href="saya.html" aria-label="Saya">{ICON_SAYA} Saya</a>')
+        side_foot = f'Snapshot <b>{date}</b><br>FX ~{fx:,.0f} VND/$'
+        page_desc = f"ROAS / CPI / retention theo geo & creative — Cardia Meta Ads, snapshot {date}"
+        campaign_panel = META_CAMPAIGN_PANEL
+        creative_panel = CREATIVE_PANEL
 
     html = f"""<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1256,7 +1276,7 @@ def build(d, app):
     out = HERE / ("saya.html" if is_saya else "dashboard.html")
     out.write_text(html, encoding="utf-8")
     T = totals_py(DTOT, all_days)
-    extra = "" if is_saya else f" · {len(DCRE)} creative · FX={fx:,.0f}"
+    extra = f" · {len(DCRE)} creative · FX={fx:,.0f}" if has_meta else ""
     print(f"✅ {app_title} → {out}")
     print(f"   {len(all_days)} ngày · installs={T[0]} cost=${T[1]:.2f} rev=${T[2]:.2f}{extra}")
 

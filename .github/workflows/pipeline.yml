@@ -47,6 +47,7 @@ jobs:
           ADJUST_REPORT_QUERY:   ${{ secrets.ADJUST_REPORT_QUERY }}
           ADJUST_CREATIVE_QUERY: ${{ secrets.ADJUST_CREATIVE_QUERY }}
           ADJUST_SAYA_QUERY:     ${{ secrets.ADJUST_SAYA_QUERY }}
+          META_SAYA_AD_ACCOUNT_ID: ${{ secrets.META_SAYA_AD_ACCOUNT_ID }}
           SINCE:                 ${{ secrets.SINCE }}
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -60,6 +61,7 @@ jobs:
             echo "ADJUST_REPORT_QUERY=${ADJUST_REPORT_QUERY}"
             echo "ADJUST_CREATIVE_QUERY=${ADJUST_CREATIVE_QUERY}"
             echo "ADJUST_SAYA_QUERY=${ADJUST_SAYA_QUERY}"
+            echo "META_SAYA_AD_ACCOUNT_ID=${META_SAYA_AD_ACCOUNT_ID}"
             echo "SINCE=${SINCE}"
             echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}"
             echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}"

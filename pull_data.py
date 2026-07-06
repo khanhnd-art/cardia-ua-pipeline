@@ -119,6 +119,19 @@ def pull_meta(env, since, until, outdir):
     if not token or not acct:
         print("⚠️  Bỏ qua Meta — thiếu META_ACCESS_TOKEN / META_AD_ACCOUNT_ID")
         return
+    pull_meta_account(token, acct, since, until, outdir, prefix="meta")
+
+    # Account Meta của SAYA (tùy chọn) — cùng token, file prefix meta_saya_*.
+    # Lỗi ở đây KHÔNG làm hỏng pull Cardia.
+    sacct = env.get("META_SAYA_AD_ACCOUNT_ID")
+    if sacct:
+        try:
+            pull_meta_account(token, sacct, since, until, outdir, prefix="meta_saya")
+        except Exception as e:
+            print(f"⚠️  Bỏ qua Meta Saya (không ảnh hưởng pull chính): {e}")
+
+
+def pull_meta_account(token, acct, since, until, outdir, prefix="meta"):
     for level in ("campaign", "ad"):
         rows = meta_insights(acct, {
             "level": level,
@@ -127,9 +140,9 @@ def pull_meta(env, since, until, outdir):
             "limit": "500",
             "access_token": token,
         }, since, until)
-        out = outdir / f"meta_{level}.csv"
+        out = outdir / f"{prefix}_{level}.csv"
         write_meta_csv(rows, out)
-        print(f"✅ Meta {level}: {len(rows)} dòng → {out.name}")
+        print(f"✅ {prefix} {level}: {len(rows)} dòng → {out.name}")
 
     # Spend theo COUNTRY (breakdown=country, level campaign) — Meta /insights KHÔNG có country
     # ở pull chính nên xin riêng. Lỗi ở đây KHÔNG làm hỏng pull chính.
@@ -142,7 +155,7 @@ def pull_meta(env, since, until, outdir):
             "limit": "500",
             "access_token": token,
         }, since, until)
-        gout = outdir / "meta_campaign_geo.csv"
+        gout = outdir / f"{prefix}_campaign_geo.csv"
         with open(gout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["date", "campaign_name", "country", "spend", "impressions", "clicks", "installs"])
@@ -152,7 +165,7 @@ def pull_meta(env, since, until, outdir):
                 w.writerow([r.get("date_start", ""), r.get("campaign_name", ""),
                             r.get("country", ""), r.get("spend", ""),
                             r.get("impressions", ""), r.get("clicks", ""), inst])
-        print(f"✅ Meta campaign×country: {len(grows)} dòng → {gout.name}")
+        print(f"✅ {prefix} campaign×country: {len(grows)} dòng → {gout.name}")
     except Exception as e:
         print(f"⚠️  Bỏ qua Meta campaign×country (không ảnh hưởng pull chính): {e}")
 
@@ -166,7 +179,7 @@ def pull_meta(env, since, until, outdir):
             "limit": "500",
             "access_token": token,
         }, since, until)
-        aout = outdir / "meta_ad_geo.csv"
+        aout = outdir / f"{prefix}_ad_geo.csv"
         with open(aout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["date", "ad_name", "country", "spend", "impressions", "clicks", "installs"])
@@ -176,7 +189,7 @@ def pull_meta(env, since, until, outdir):
                 w.writerow([r.get("date_start", ""), r.get("ad_name", ""),
                             r.get("country", ""), r.get("spend", ""),
                             r.get("impressions", ""), r.get("clicks", ""), inst])
-        print(f"✅ Meta ad×country: {len(arows)} dòng → {aout.name}")
+        print(f"✅ {prefix} ad×country: {len(arows)} dòng → {aout.name}")
     except Exception as e:
         print(f"⚠️  Bỏ qua Meta ad×country (không ảnh hưởng pull chính): {e}")
 
@@ -189,13 +202,13 @@ def pull_meta(env, since, until, outdir):
             sdata = json.loads(http_get(surl))
             srows.extend(sdata.get("data", []))
             surl = sdata.get("paging", {}).get("next")
-        sout = outdir / "meta_campaign_status.csv"
+        sout = outdir / f"{prefix}_campaign_status.csv"
         with open(sout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["campaign_name", "effective_status"])
             for r in srows:
                 w.writerow([r.get("name", ""), r.get("effective_status", "")])
-        print(f"✅ Meta campaign status: {len(srows)} dòng → {sout.name}")
+        print(f"✅ {prefix} campaign status: {len(srows)} dòng → {sout.name}")
     except Exception as e:
         print(f"⚠️  Bỏ qua campaign status (không ảnh hưởng pull chính): {e}")
 
