@@ -89,11 +89,21 @@ def _action_value(actions, key):
     return ""
 
 
+def account_currency(token, acct):
+    """Currency của ad account (VND/USD...) — mỗi account 1 call. Lỗi → 'VND' (hành vi cũ)."""
+    try:
+        data = json.loads(http_get(
+            f"{META_API}/{acct}?" + urllib.parse.urlencode({"fields": "currency", "access_token": token})))
+        return (data.get("currency") or "VND").upper()
+    except Exception:
+        return "VND"
+
+
 def write_meta_csv(rows, path):
     cols = ["date", "campaign_name", "adset_name", "ad_name", "spend", "impressions",
             "reach", "clicks", "ctr", "inline_link_click_ctr", "cpm",
             "installs", "video_3s", "cost_per_install",
-            "quality_ranking", "engagement_rate_ranking", "conversion_rate_ranking"]
+            "quality_ranking", "engagement_rate_ranking", "conversion_rate_ranking", "currency"]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(cols)
@@ -109,7 +119,7 @@ def write_meta_csv(rows, path):
                 r.get("clicks", ""), r.get("ctr", ""), r.get("inline_link_click_ctr", ""),
                 r.get("cpm", ""), installs, v3, cpi,
                 r.get("quality_ranking", ""), r.get("engagement_rate_ranking", ""),
-                r.get("conversion_rate_ranking", ""),
+                r.get("conversion_rate_ranking", ""), r.get("_currency", ""),
             ])
 
 
@@ -122,6 +132,7 @@ def pull_meta(env, since, until, outdir):
     pull_meta_account(token, acct, since, until, outdir, prefix="meta")
 
     # Account Meta của SAYA (tùy chọn) — cùng token, file prefix meta_saya_*.
+    # Nhận NHIỀU account cách nhau dấu phẩy (giai đoạn chuyển account cũ → mới): data gộp chung 1 bộ file.
     # Lỗi ở đây KHÔNG làm hỏng pull Cardia.
     sacct = env.get("META_SAYA_AD_ACCOUNT_ID")
     if sacct:
@@ -132,14 +143,28 @@ def pull_meta(env, since, until, outdir):
 
 
 def pull_meta_account(token, acct, since, until, outdir, prefix="meta"):
+    # acct: 1 account hoặc danh sách phẩy "act_A,act_B" → pull từng account, GỘP rows vào cùng bộ file.
+    # Mỗi row gắn currency của account nó thuộc về (account có thể VND / USD khác nhau).
+    accts = [a.strip() for a in str(acct).split(",") if a.strip()]
+    curs = {a: account_currency(token, a) for a in accts}
+
+    def fetch_all(base_params):
+        rows = []
+        for a in accts:
+            part = meta_insights(a, dict(base_params), since, until)
+            for r in part:
+                r["_currency"] = curs[a]
+            rows.extend(part)
+        return rows
+
     for level in ("campaign", "ad"):
-        rows = meta_insights(acct, {
+        rows = fetch_all({
             "level": level,
             "fields": META_FIELDS,
             "time_increment": "1",   # breakdown theo NGÀY (cho phép lọc thời gian ở dashboard)
             "limit": "500",
             "access_token": token,
-        }, since, until)
+        })
         out = outdir / f"{prefix}_{level}.csv"
         write_meta_csv(rows, out)
         print(f"✅ {prefix} {level}: {len(rows)} dòng → {out.name}")
@@ -147,48 +172,48 @@ def pull_meta_account(token, acct, since, until, outdir, prefix="meta"):
     # Spend theo COUNTRY (breakdown=country, level campaign) — Meta /insights KHÔNG có country
     # ở pull chính nên xin riêng. Lỗi ở đây KHÔNG làm hỏng pull chính.
     try:
-        grows = meta_insights(acct, {
+        grows = fetch_all({
             "level": "campaign",
             "fields": "campaign_name,spend,impressions,clicks,actions",
             "breakdowns": "country",
             "time_increment": "1",
             "limit": "500",
             "access_token": token,
-        }, since, until)
+        })
         gout = outdir / f"{prefix}_campaign_geo.csv"
         with open(gout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["date", "campaign_name", "country", "spend", "impressions", "clicks", "installs"])
+            w.writerow(["date", "campaign_name", "country", "spend", "impressions", "clicks", "installs", "currency"])
             for r in grows:
                 inst = (_action_value(r.get("actions"), "mobile_app_install")
                         or _action_value(r.get("actions"), "omni_app_install"))
                 w.writerow([r.get("date_start", ""), r.get("campaign_name", ""),
                             r.get("country", ""), r.get("spend", ""),
-                            r.get("impressions", ""), r.get("clicks", ""), inst])
+                            r.get("impressions", ""), r.get("clicks", ""), inst, r.get("_currency", "")])
         print(f"✅ {prefix} campaign×country: {len(grows)} dòng → {gout.name}")
     except Exception as e:
         print(f"⚠️  Bỏ qua Meta campaign×country (không ảnh hưởng pull chính): {e}")
 
     # Spend theo COUNTRY ở level AD (creative) — cho breakdown country của bảng Creative.
     try:
-        arows = meta_insights(acct, {
+        arows = fetch_all({
             "level": "ad",
             "fields": "ad_name,spend,impressions,clicks,actions",
             "breakdowns": "country",
             "time_increment": "1",
             "limit": "500",
             "access_token": token,
-        }, since, until)
+        })
         aout = outdir / f"{prefix}_ad_geo.csv"
         with open(aout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["date", "ad_name", "country", "spend", "impressions", "clicks", "installs"])
+            w.writerow(["date", "ad_name", "country", "spend", "impressions", "clicks", "installs", "currency"])
             for r in arows:
                 inst = (_action_value(r.get("actions"), "mobile_app_install")
                         or _action_value(r.get("actions"), "omni_app_install"))
                 w.writerow([r.get("date_start", ""), r.get("ad_name", ""),
                             r.get("country", ""), r.get("spend", ""),
-                            r.get("impressions", ""), r.get("clicks", ""), inst])
+                            r.get("impressions", ""), r.get("clicks", ""), inst, r.get("_currency", "")])
         print(f"✅ {prefix} ad×country: {len(arows)} dòng → {aout.name}")
     except Exception as e:
         print(f"⚠️  Bỏ qua Meta ad×country (không ảnh hưởng pull chính): {e}")
@@ -196,12 +221,13 @@ def pull_meta_account(token, acct, since, until, outdir, prefix="meta"):
     # Trạng thái campaign (ACTIVE/PAUSED…) — KHÔNG có trong /insights, phải hỏi /campaigns.
     try:
         sp = {"fields": "name,effective_status", "limit": "500", "access_token": token}
-        surl = f"{META_API}/{acct}/campaigns?" + urllib.parse.urlencode(sp)
         srows = []
-        while surl:
-            sdata = json.loads(http_get(surl))
-            srows.extend(sdata.get("data", []))
-            surl = sdata.get("paging", {}).get("next")
+        for a in accts:
+            surl = f"{META_API}/{a}/campaigns?" + urllib.parse.urlencode(sp)
+            while surl:
+                sdata = json.loads(http_get(surl))
+                srows.extend(sdata.get("data", []))
+                surl = sdata.get("paging", {}).get("next")
         sout = outdir / f"{prefix}_campaign_status.csv"
         with open(sout, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)

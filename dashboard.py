@@ -226,7 +226,14 @@ def load_adjust(d, fname="adjust_report.csv"):
     return DTOT, DGEO, DACAM, DCAMGEO, CAM_CH
 
 
-def load_meta(d, fname="meta_ad.csv", cre_re=CRE_RE):
+def spend_vnd(r, fx):
+    """Spend Meta quy về VND (đơn vị nội bộ dashboard). Account currency USD → nhân FX;
+    thiếu cột currency (CSV cũ) hoặc VND → giữ nguyên."""
+    sp = f(r.get("spend"))
+    return sp * fx if (r.get("currency") or "").strip().upper() == "USD" else sp
+
+
+def load_meta(d, fname="meta_ad.csv", cre_re=CRE_RE, fx=26000.0):
     """DCRE[creative][day]=[spendVND,impr,linkclicks,inst,v3]; QR[creative]=ranking."""
     DCRE = defaultdict(lambda: defaultdict(lambda: [0.0, 0, 0.0, 0, 0]))
     QR = {}
@@ -238,7 +245,7 @@ def load_meta(d, fname="meta_ad.csv", cre_re=CRE_RE):
             day = r.get("date", "") or "?"
             impr = int(f(r["impressions"]))
             a = DCRE[cid][day]
-            a[0] += f(r["spend"]); a[1] += impr
+            a[0] += spend_vnd(r, fx); a[1] += impr
             a[2] += f(r["inline_link_click_ctr"]) / 100 * impr
             a[3] += int(f(r["installs"])); a[4] += int(f(r["video_3s"]))
             if r.get("quality_ranking", "") not in ("", "UNKNOWN"):
@@ -264,7 +271,7 @@ def objective_of(name):
     return "Install"
 
 
-def load_meta_campaign(d, fname="meta_campaign.csv", status_fname="meta_campaign_status.csv"):
+def load_meta_campaign(d, fname="meta_campaign.csv", status_fname="meta_campaign_status.csv", fx=26000.0):
     """DCAM[campaign][day]=[spendVND,impr,linkclicks,inst,v3]; CAM_OBJ; CAM_STATUS[campaign]=effective_status."""
     DCAM = defaultdict(lambda: defaultdict(lambda: [0.0, 0, 0.0, 0, 0]))
     CAM_OBJ, CAM_STATUS = {}, {}
@@ -277,7 +284,7 @@ def load_meta_campaign(d, fname="meta_campaign.csv", status_fname="meta_campaign
             day = r.get("date", "") or "?"
             impr = int(f(r["impressions"]))
             a = DCAM[cam][day]
-            a[0] += f(r["spend"]); a[1] += impr
+            a[0] += spend_vnd(r, fx); a[1] += impr
             a[2] += f(r["inline_link_click_ctr"]) / 100 * impr
             a[3] += int(f(r["installs"])); a[4] += int(f(r["video_3s"]))
             CAM_OBJ[cam] = objective_of(cam)
@@ -291,7 +298,7 @@ def load_meta_campaign(d, fname="meta_campaign.csv", status_fname="meta_campaign
     return DCAM, CAM_OBJ, CAM_STATUS
 
 
-def load_meta_geo(d, fname="meta_campaign_geo.csv"):
+def load_meta_geo(d, fname="meta_campaign_geo.csv", fx=26000.0):
     """META_CG[campaign][country][day] = [spend Meta (VND), installs Meta].
     Meta breakdown=country trả mã ISO2 → đổi sang tên nước (khớp tên Adjust) để ghép vào DCAMGEO theo country."""
     META_CG = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0])))
@@ -305,7 +312,7 @@ def load_meta_geo(d, fname="meta_campaign_geo.csv"):
             name = ISO2_NAME.get(iso, iso)  # thiếu trong map → giữ mã ISO
             day = r.get("date", "") or "?"
             a = META_CG[cam][name][day]
-            a[0] += f(r.get("spend")); a[1] += int(f(r.get("installs")))
+            a[0] += spend_vnd(r, fx); a[1] += int(f(r.get("installs")))
     return META_CG
 
 
@@ -339,7 +346,7 @@ def load_adjust_creative(d):
     return DCG
 
 
-def load_meta_creative_geo(d, fname="meta_ad_geo.csv", cre_re=CRE_RE):
+def load_meta_creative_geo(d, fname="meta_ad_geo.csv", cre_re=CRE_RE, fx=26000.0):
     """META_CRG[carid][country][day] = [spend Meta (VND), installs Meta] từ meta_ad_geo.csv (level ad × country)."""
     META_CRG = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0])))
     p = d / fname
@@ -354,7 +361,7 @@ def load_meta_creative_geo(d, fname="meta_ad_geo.csv", cre_re=CRE_RE):
             name = ISO2_NAME.get(iso, iso)
             day = r.get("date", "") or "?"
             a = META_CRG[cid][name][day]
-            a[0] += f(r.get("spend")); a[1] += int(f(r.get("installs")))
+            a[0] += spend_vnd(r, fx); a[1] += int(f(r.get("installs")))
     return META_CRG
 
 
@@ -382,16 +389,28 @@ def build(d, app):
         pulled_ts = datetime.datetime.now().timestamp()
     built = datetime.datetime.fromtimestamp(pulled_ts).strftime("%d/%m/%Y %H:%M")
     DTOT, DGEO, DACAM_ADJ, DCAMGEO, CAM_CH = load_adjust(d, src)
+    # FX luôn suy từ CARDIA (Meta VND ÷ Adjust cost USD — cost sharing Cardia đã chuẩn); cùng đơn vị
+    # VND nên Saya dùng chung. Tính TRƯỚC khi load Meta vì loader cần FX để quy account USD → VND
+    # (chỉ đếm dòng VND của Cardia — account USD mà lọt vào meta_ad.csv sẽ làm lệch tỷ giá).
+    try:
+        _mv = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv"))
+                  if (r.get("currency") or "").strip().upper() != "USD")
+        _rows = json.loads((d / "adjust_report.csv").read_text())["rows"]
+        _ac = sum(f(r.get("cost")) for r in _rows
+                  if (r.get("network", "") or "").strip().lower() != "organic")
+        fx = _mv / _ac if _ac else 26000
+    except Exception:
+        fx = 26000
     if has_meta:
-        DCRE, QR = load_meta(d, f"{pfx}_ad.csv", cre_re)
+        DCRE, QR = load_meta(d, f"{pfx}_ad.csv", cre_re, fx)
         # adjust_creative.csv là query app Cardia → Saya khởi tạo rỗng (nhận merge Meta bên dưới)
         DCREGEO = load_adjust_creative(d) if not is_saya else \
             defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0.0, 0])))
-        DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d, f"{pfx}_campaign.csv", f"{pfx}_campaign_status.csv")
+        DCAM, CAM_OBJ, CAM_STATUS = load_meta_campaign(d, f"{pfx}_campaign.csv", f"{pfx}_campaign_status.csv", fx)
         # ghép spend+installs Meta theo country vào DCAMGEO/DCREGEO (slot spend VND + inst Meta).
         # CANON: chuẩn hoá tên nước về đúng spelling Adjust (lowercase → tên Adjust) để merge khớp.
-        META_CG = load_meta_geo(d, f"{pfx}_campaign_geo.csv")
-        META_CRG = load_meta_creative_geo(d, f"{pfx}_ad_geo.csv", cre_re)
+        META_CG = load_meta_geo(d, f"{pfx}_campaign_geo.csv", fx)
+        META_CRG = load_meta_creative_geo(d, f"{pfx}_ad_geo.csv", cre_re, fx)
         CANON = {}
         for src_map in (DCAMGEO, DCREGEO):
             for geos in src_map.values():
@@ -433,16 +452,6 @@ def build(d, app):
         if meta_days:
             _mmax = max(meta_days)
             all_days = [x for x in all_days if x <= _mmax]
-    # FX luôn suy từ CARDIA (Meta VND ÷ Adjust cost USD — cost sharing Cardia đã chuẩn).
-    # Saya chưa bật cost sharing Meta→Adjust nên không tự suy được; cùng đơn vị VND nên dùng chung.
-    try:
-        _mv = sum(f(r["spend"]) for r in csv.DictReader(open(d / "meta_ad.csv")))
-        _rows = json.loads((d / "adjust_report.csv").read_text())["rows"]
-        _ac = sum(f(r.get("cost")) for r in _rows
-                  if (r.get("network", "") or "").strip().lower() != "organic")
-        fx = _mv / _ac if _ac else 26000
-    except Exception:
-        fx = 26000
     # Mốc D1 chín: neo theo NGÀY DATA MỚI NHẤT trong snapshot (không phải hôm nay) — vì retention
     # 1-2 ngày cuối bị đếm thiếu do lúc pull ngày chưa trọn. Install-day X đo được D1 khi X+1 đã
     # trọn ngày & đã settle → X <= (ngày mới nhất - 2). Cohort mới hơn → "chưa chín", D1 hiển thị "–".
