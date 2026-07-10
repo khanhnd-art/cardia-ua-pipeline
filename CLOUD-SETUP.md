@@ -28,8 +28,9 @@ gh repo create cardia-ua-pipeline --public --source=. --push
 ```bash
 bash push-secrets.sh <owner>/cardia-ua-pipeline
 ```
-Hoặc thủ công: repo → **Settings → Secrets and variables → Actions → New secret**, thêm 11 key:
-`META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `ADJUST_API_TOKEN`, `ADJUST_REPORT_QUERY`,
+Hoặc thủ công: repo → **Settings → Secrets and variables → Actions → New secret**, thêm 12 key:
+`META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_SHARED_AD_ACCOUNT_ID` (tùy chọn — account dùng
+chung Cardia+Saya, xem README A3b), `ADJUST_API_TOKEN`, `ADJUST_REPORT_QUERY`,
 `ADJUST_CREATIVE_QUERY`, `ADJUST_SAYA_QUERY` + `META_SAYA_AD_ACCOUNT_ID` (trang Saya `/saya`,
 xem README B2d), `SINCE`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_PAGES_PROJECT`.
 

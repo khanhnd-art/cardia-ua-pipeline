@@ -27,6 +27,13 @@ Kéo data Meta Ads (delivery: spend/CPI/CTR/hook-rate/quality) + Adjust (revenue
   Ví dụ ID `1234567890` → `META_AD_ACCOUNT_ID=act_1234567890`.
   (Hoặc lấy từ URL Ads Manager: `...act=1234567890...`)
 
+**A3b. (tùy chọn) Account dùng chung cho Cardia + Saya** — `META_SHARED_AD_ACCOUNT_ID`
+Nếu 1 ad account (cùng BM) chứa campaign trộn cả 2 app, dán account đó vào `META_SHARED_AD_ACCOUNT_ID`
+(KHÔNG dán vào `META_AD_ACCOUNT_ID`/`META_SAYA_AD_ACCOUNT_ID`). Script tự lọc `campaign_name` phía
+Python: trang Cardia chỉ nhận campaign chứa `Cardia_`; trang Saya loại campaign chứa `Cardia_` (Saya
+không có prefix cố định — `Say_`, `Eden_`...) rồi gộp vào đúng dashboard — account riêng của từng app
+ở trên không bị ảnh hưởng.
+
 ---
 
 ## PHẦN B — Adjust: lấy API token + report query

@@ -148,7 +148,9 @@ def pull_meta(env, since, until, outdir):
     # loại trừ campaign tên bắt đầu "Cardia_" thay vì chỉ nhận "Say_" (Saya có nhiều kiểu tên: Say_, Eden_...).
     # Lỗi ở đây KHÔNG làm hỏng pull Cardia.
     sacct = env.get("META_SAYA_AD_ACCOUNT_ID")
-    saya_sources = _parse_sources(sacct, exclude="Cardia_") + _parse_sources(shared, include="Say_")
+    # Shared account cũng lọc EXCLUDE "Cardia_" (không phải INCLUDE "Say_"): Saya có nhiều kiểu
+    # tên (Say_, Eden_...) không cùng 1 prefix cố định — include cứng sẽ loại nhầm (đã gặp với Eden).
+    saya_sources = _parse_sources(sacct, exclude="Cardia_") + _parse_sources(shared, exclude="Cardia_")
     if saya_sources:
         try:
             pull_meta_account(token, saya_sources, since, until, outdir, prefix="meta_saya")
