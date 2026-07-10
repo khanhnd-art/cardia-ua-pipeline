@@ -158,8 +158,9 @@ def pull_meta(env, since, until, outdir):
 
 def pull_meta_account(token, sources, since, until, outdir, prefix="meta"):
     # sources: list [(acct, include, exclude), ...] — GỘP rows từ mọi account vào cùng bộ file.
-    # include: lọc campaign.name CONTAIN <prefix> (account share chung, chỉ nhận đúng app).
-    # exclude: lọc campaign.name NOT_CONTAIN <prefix> (account share chung, loại app kia ra).
+    # include/exclude: lọc THEO CLIENT (không dùng "filtering" server-side của Meta — cú pháp
+    # CONTAIN/NOT_CONTAIN chưa kiểm chứng thực tế, an toàn hơn khi tự lọc bằng Python).
+    # Lọc theo campaign_name; row không có campaign_name (vd fetch chỉ có ad_name) thì fallback ad_name.
     # Mỗi row gắn currency của account nó thuộc về (account có thể VND / USD khác nhau).
     accts = [a for a, _, _ in sources]
     curs = {a: account_currency(token, a) for a in accts}
@@ -167,18 +168,15 @@ def pull_meta_account(token, sources, since, until, outdir, prefix="meta"):
     def fetch_all(base_params):
         rows = []
         for a, include, exclude in sources:
-            params = dict(base_params)
-            filt = []
-            if include:
-                filt.append({"field": "campaign.name", "operator": "CONTAIN", "value": include})
-            if exclude:
-                filt.append({"field": "campaign.name", "operator": "NOT_CONTAIN", "value": exclude})
-            if filt:
-                params["filtering"] = json.dumps(filt)
-            part = meta_insights(a, params, since, until)
+            part = meta_insights(a, dict(base_params), since, until)
             for r in part:
+                name = r.get("campaign_name") or r.get("ad_name") or ""
+                if include and include not in name:
+                    continue
+                if exclude and exclude in name:
+                    continue
                 r["_currency"] = curs[a]
-            rows.extend(part)
+                rows.append(r)
         return rows
 
     for level in ("campaign", "ad"):
