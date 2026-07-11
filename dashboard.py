@@ -76,6 +76,12 @@ def f(x):
         return 0.0
 
 
+def row_cost(r):
+    """Spend 1 row Adjust: metric "cost" (Meta ghi thẳng vào đây) hoặc fallback
+    "network_cost" (TikTok DataWorks ghi vào field này thay vì "cost")."""
+    return f(r.get("cost")) or f(r.get("network_cost"))
+
+
 def latest_export():
     if len(sys.argv) > 1:
         return HERE / "exports" / sys.argv[1]
@@ -207,7 +213,7 @@ def load_adjust(d, fname="adjust_report.csv"):
         if net == "organic" or (not net and (r.get("campaign", "") or "").strip().lower() == "unknown"):
             continue
         day = r.get("day", "")
-        ins = int(f(r.get("installs"))); cost = f(r.get("cost")); rev = f(r.get("ad_revenue"))
+        ins = int(f(r.get("installs"))); cost = row_cost(r); rev = f(r.get("ad_revenue"))
         roas7 = f(r.get("roas_d7")); ret1 = f(r.get("retention_rate_d1"))
         geo = country_of(r.get("country", ""))  # bảng Geo thống kê theo COUNTRY, không gom vùng
         # DCAMGEO key theo ĐÚNG country (không gom vùng) để so sánh từng nước
@@ -339,7 +345,7 @@ def load_adjust_creative(d):
         cty = (r.get("country", "") or "").strip() or "Unknown"
         if cty.lower() == "unknown":
             cty = "Unknown"
-        ins = int(f(r.get("installs"))); cost = f(r.get("cost"))
+        ins = int(f(r.get("installs"))); cost = row_cost(r)
         rev = f(r.get("ad_revenue")); ret1 = f(r.get("retention_rate_d1"))
         a = DCG[cid][cty][day]
         a[0] += ins; a[1] += cost; a[2] += rev; a[3] += ret1 * ins

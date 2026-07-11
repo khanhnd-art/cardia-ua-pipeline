@@ -18,6 +18,10 @@ def f(x):
     try: return float(x)
     except: return 0.0
 
+def row_cost(r):
+    """Spend 1 row Adjust: "cost" (Meta) hoặc fallback "network_cost" (TikTok DataWorks)."""
+    return f(r.get("cost")) or f(r.get("network_cost"))
+
 # ---------- ADJUST (USD: installs, cost, ad_revenue) ----------
 def analyze_adjust(d):
     rows = json.loads((d / "adjust_report.csv").read_text())["rows"]
@@ -32,7 +36,7 @@ def analyze_adjust(d):
         net = (r.get("network", "") or "").strip().lower()
         if net == "organic" or (not net and (r.get("campaign", "") or "").strip().lower() == "unknown"):
             continue  # bỏ Organic — chỉ đo paid UA (như dashboard)
-        ins, cost, rev = int(f(r["installs"])), f(r["cost"]), f(r["ad_revenue"])
+        ins, cost, rev = int(f(r["installs"])), row_cost(r), f(r["ad_revenue"])
         ret1, ret7, roas7 = f(r.get("retention_rate_d1")), f(r.get("retention_rate_d7")), f(r.get("roas_d7"))
         camp = r["campaign"].split(" (")[0]
         c = r["country"]
@@ -108,7 +112,7 @@ def analyze_adjust_creative(d):
         if (r.get("network", "") or "").strip().lower() == "organic":
             continue
         name = r.get("creative") or r.get("adgroup") or r.get("campaign", "?")
-        ins = int(f(r.get("installs"))); cost = f(r.get("cost")); rev = f(r.get("ad_revenue"))
+        ins = int(f(r.get("installs"))); cost = row_cost(r); rev = f(r.get("ad_revenue"))
         a = agg[name]; a[0] += ins; a[1] += cost; a[2] += rev
         a[3] += f(r.get("retention_rate_d1")) * ins; a[4] += f(r.get("roas_d7")) * cost
     print("\n### ADJUST theo CREATIVE/ADGROUP (retention chất lượng install)")

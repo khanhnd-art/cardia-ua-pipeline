@@ -66,6 +66,9 @@ account Meta Saya chính (GMT+7; dấu `+` phải encode `%2B`). `META_SAYA_AD_A
 act_… cách nhau dấu phẩy** (cùng system-user token) — dùng khi chuyển account: data các account gộp
 chung, currency từng account (VND/USD) tự phát hiện, dashboard tự quy đổi. Cost TikTok nằm sẵn trong
 Adjust qua partner link → **không cần TikTok API** (creative-level TikTok chờ platform mới).
+⚠️ Query phải có metric `network_cost` (cùng với `cost`) — spend TikTok (qua DataWorks cost
+integration, connect 10/07) ghi vào `network_cost` chứ không phải `cost` (field đó chỉ Meta dùng);
+`dashboard.py`/`analyze.py` tự lấy `cost || network_cost` theo từng row.
 
 **B2e. (tùy chọn) Thêm dimension / creative-level — soi retention theo từng creative**
 Query chính hiện đã gồm `sessions,daus,waus` để `analyze.py` tự in **SESSION CHECK** (xác định retention thật hay tracking đứt).
